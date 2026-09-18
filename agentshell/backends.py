@@ -36,7 +36,10 @@ class Parsed:
 @dataclass(frozen=True)
 class Backend:
     name: str
-    argv: Callable[[str], list[str]]
+    # argv(prompt, readonly). readonly=True means "answer, do not touch the
+    # tree": the REPL uses it for `?` proposals and `explain`, where an agent
+    # that went ahead and ran the command would defeat the review step.
+    argv: Callable[[str, bool], list[str]]
     parse: Callable[[str], Parsed]
     rate_limit_patterns: tuple[str, ...]
     # False means "no quota": never skipped by the ledger, never budgeted.
@@ -130,40 +133,74 @@ def parse_opencode(stdout: str) -> Parsed:
 # --- the chain -------------------------------------------------------------
 #
 # Permission flags: a headless coding run has to be allowed to edit files, or
-# every tool call is silently refused. Each CLI spells that differently. If a
-# live smoke shows edits being denied, this is the first place to look.
+# every tool call is silently refused. Each CLI spells that differently, and
+# each has a read-only spelling for proposals. If a live smoke shows edits
+# being denied (or, worse, happening in readonly mode) this is the place.
+
+LOCAL_MODEL = "gpt-oss:20b"
+
+
+def _claude_argv(prompt: str, readonly: bool) -> list[str]:
+    mode = "plan" if readonly else "acceptEdits"
+    return ["claude", "-p", prompt, "--output-format", "json", "--permission-mode", mode]
+
+
+def _codex_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
+    sandbox = "read-only" if readonly else "workspace-write"
+    return ["codex", "exec", "--json", "-s", sandbox, *extra, prompt]
+
+
+def _agy_argv(prompt: str, readonly: bool) -> list[str]:
+    mode = "plan" if readonly else "accept-edits"
+    return ["agy", "-p", prompt, "--output-format", "json", "--mode", mode]
+
+
+def _opencode_argv(prompt: str, readonly: bool) -> list[str]:
+    agent = ["--agent", "plan"] if readonly else []
+    return ["opencode", "run", "--format", "json", "-m", f"ollama/{LOCAL_MODEL}", *agent, prompt]
+
 
 CLAUDE = Backend(
     name="claude",
-    argv=lambda prompt: ["claude", "-p", prompt, "--output-format", "json",
-                         "--permission-mode", "acceptEdits"],
+    argv=_claude_argv,
     parse=parse_claude_style,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"limit reached", r"\b429\b"),
 )
 
 CODEX = Backend(
     name="codex",
-    argv=lambda prompt: ["codex", "exec", "--json", "-s", "workspace-write", prompt],
+    argv=_codex_argv,
     parse=parse_codex,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"quota", r"\b429\b"),
 )
 
 AGY = Backend(
     name="agy",
-    argv=lambda prompt: ["agy", "-p", prompt, "--output-format", "json",
-                         "--mode", "accept-edits"],
+    argv=_agy_argv,
     parse=parse_claude_style,
     rate_limit_patterns=(r"quota", r"RESOURCE_EXHAUSTED", r"rate.?limit", r"\b429\b"),
 )
 
 OPENCODE_LOCAL = Backend(
     name="opencode-local",
-    argv=lambda prompt: ["opencode", "run", "--format", "json",
-                         "-m", "ollama/gpt-oss:20b", prompt],
+    argv=_opencode_argv,
     parse=parse_opencode,
     rate_limit_patterns=(),
     metered=False,
 )
 
-DEFAULT_CHAIN: tuple[Backend, ...] = (CLAUDE, CODEX, AGY, OPENCODE_LOCAL)
+# Same local model through the Codex CLI instead of OpenCode. Needs no
+# provider config, so it is the fallback for the fallback: if OpenCode is
+# unconfigured it exits non-zero, the router classifies that as FAILED and
+# falls through to here. Also unmetered - it is your own GPU.
+CODEX_OSS = Backend(
+    name="codex-oss",
+    argv=lambda prompt, readonly: _codex_argv(
+        prompt, readonly, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
+    parse=parse_codex,
+    rate_limit_patterns=(),
+    metered=False,
+)
+
+DEFAULT_CHAIN: tuple[Backend, ...] = (CLAUDE, CODEX, AGY, OPENCODE_LOCAL, CODEX_OSS)
 BY_NAME = {b.name: b for b in DEFAULT_CHAIN}

@@ -8,6 +8,86 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-09-18 — Proposals go to backends in read-only mode
+
+**Context.** In the REPL, `? stage all modified js files` asks an *agent* CLI
+that has file-editing permissions. Nothing stops it from just doing the task
+instead of proposing a command, which defeats the review step entirely.
+
+**Decision.** `Backend.argv(prompt, readonly)`. The REPL passes
+`readonly=True` for `?`, `fix` and `explain`; each backend spells it
+natively (`claude --permission-mode plan`, `codex -s read-only`,
+`agy --mode plan`, `opencode --agent plan`). The one-shot CLI still runs
+with edit permissions.
+
+**Why not the alternative.** Prompt text alone ("do not run anything") is a
+request, not a boundary.
+
+**Consequences.** Whether each readonly flag actually blocks writes is
+unverified until a live smoke; the flags are the first suspect if a `?`
+ever changes a file.
+
+---
+
+## 2026-09-18 — Plain REPL lines run in PowerShell 5.1 via a validated wrapper
+
+**Context.** The feature spec assumed Linux (`ps`, `df`, `shell=True`).
+This machine is Windows 11; Kevin's daily shell is PowerShell 5.1.
+
+**Decision.** PowerShell, driven with `-EncodedCommand` and the wrapper in
+`shell.powershell_script`: progress silenced, error stream redirected to a
+temp file at the PowerShell level, `$LASTEXITCODE` checked first, then
+`$Error` with `NativeCommandError*` filtered out.
+
+**Why not the alternative.** Every simpler wrapper failed one of nine probe
+cases: piping stderr yields CLIXML; `$?` after a redirected scriptblock
+reflects the redirection; `$?` inside the block is false when a native
+command merely writes to stderr (git); `$Error.Count` alone has the same
+git problem. `pwsh` 7 avoids all of this but is not installed; `shell.py`
+prefers it automatically if it ever is.
+
+**Consequences.** `cd` must be a REPL builtin. Native stderr is shown after
+the command finishes, not live. `RealPowershell` tests pin the nine cases.
+
+---
+
+## 2026-09-18 — prompt_toolkit is the one allowed dependency, confined to repl.py
+
+**Context.** Windows has no `readline` in the stdlib, so a stdlib REPL gets
+no history navigation, no ghost-text, no highlighting.
+
+**Decision.** `prompt_toolkit` (pure Python), imported only in `repl.py`.
+The one-shot CLI, router, ledger and history stay stdlib and importable
+without it.
+
+**Why not the alternative.** Hand-rolling line editing on Windows is a
+project of its own.
+
+**Consequences.** `pip install -r requirements.txt` before `agentshell repl`.
+AGENTS.md rule 2 updated.
+
+---
+
+## 2026-09-18 — The one-shot CLI now also has an interactive REPL (supersedes "not a REPL")
+
+**Context.** The earlier entry today said REPL-later. Later arrived the same
+day, with a feature list adapted from Nushell / Fish / Atuin / thefuck.
+
+**Decision.** `agentshell repl`: plain lines execute; `? <task>` puts an
+agent-proposed command into the input buffer for review, never runs it;
+non-zero exits offer `[y/N]` diagnosis; `fix` re-asks about the last
+failure; `explain <cmd>`; every executed command lands in
+`~/.agentshell/history.db` (Atuin fields) and the last ten are fed to the
+agent as context.
+
+**Why not the alternative.** The one-shot wrapper is still there and is what
+the REPL calls; nothing was replaced.
+
+**Consequences.** Structured `ps`/`ls` wrappers from the spec are dropped:
+PowerShell's `Get-Process | ConvertTo-Json` already is that.
+
+---
+
 ## 2026-09-18 — The git working tree is the only handoff between backends (v1)
 
 **Context.** When backend A is rate-limited mid-task and backend B takes over,

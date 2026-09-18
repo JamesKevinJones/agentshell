@@ -7,7 +7,11 @@ not a result.
 
 ## Install
 
-Nothing to install. Python 3.12 + stdlib. The wrapped CLIs must be on PATH:
+```bash
+pip install -r requirements.txt
+```
+
+The wrapped CLIs must be on PATH:
 
 ```bash
 where claude codex agy opencode ollama
@@ -26,6 +30,16 @@ Prints which backend would be chosen and the exact argv, without running it:
 ```bash
 python -m agentshell --dry-run "say hello"
 ```
+
+## REPL (no quota spent unless you type `?`, `fix`, `explain`, or answer `y`)
+
+```bash
+python -m agentshell repl
+```
+
+Then check: `cmd /c exit 4` turns the prompt red with `[!4]` and offers
+`Diagnose with agent? [y/N]`; answer `n`. `cd ..` changes the prompt path.
+Up-arrow recalls `cmd /c exit 4` from SQLite. `exit` leaves.
 
 ## Status (no quota spent)
 

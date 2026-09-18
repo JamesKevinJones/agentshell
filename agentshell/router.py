@@ -70,6 +70,7 @@ def run_with_failover(
     chain: tuple[Backend, ...] = DEFAULT_CHAIN,
     via: str | None = None,
     dry_run: bool = False,
+    readonly: bool = False,
     runner: Callable[..., RunOutput] = run_backend,
     now: Callable[[], float] = time.time,
     ledger_path: Path = DEFAULT_PATH,
@@ -77,8 +78,9 @@ def run_with_failover(
 ) -> tuple[int, Parsed | None]:
     """Walk the chain until one backend returns OK. Returns (exit_code, parsed).
 
-    `runner`, `now`, `ledger_path` and `failure_dir` exist so tests can
-    substitute fakes and a temp directory. Production callers pass nothing.
+    `readonly` asks the backend to answer without touching the working tree
+    (see Backend.argv). `runner`, `now`, `ledger_path` and `failure_dir`
+    exist so tests can substitute fakes and a temp directory.
     """
     ledger = Ledger.load(ledger_path)
 
@@ -86,7 +88,7 @@ def run_with_failover(
         if reason:
             print(f"[agentshell] {backend.name}: {reason}", file=sys.stderr)
             continue
-        argv = backend.argv(prompt)
+        argv = backend.argv(prompt, readonly)
         if dry_run:
             print(f"[agentshell] would run {backend.name}: {argv}", file=sys.stderr)
             return 0, None
