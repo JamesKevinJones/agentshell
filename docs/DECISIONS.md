@@ -8,6 +8,65 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-09-18 — Design round (grilled): task, handoff, config, public repo
+
+Settled in one interview; each line is a decision, the alternatives it beat
+are in the chat transcript summary in STATE.md. Vocabulary in CONTEXT.md.
+
+**A task outlives an attempt.** A task is one prompt until an attempt
+returns ok; a follow-up prompt is a new task. Lives in `.agentshell/` in the
+project (agent can read it), excluded via `.git/info/exclude`, archived to
+`.agentshell/tasks/` pruned to 20. *Not* a session with follow-ups: that is
+what one-shot semantics ruled out on day one.
+
+**Handoff = working tree + handoff note.** The note is written by the agent
+on every attempt (one sentence appended to every prompt: "before finishing,
+write .agentshell/HANDOFF.md") and derived by agentshell when the agent
+never got there (outcome, `git diff --stat`, last 10 progress lines, dump
+path). Both, because a refusal is exactly the attempt that never finishes.
+
+**Same backend again: resume, else note.** Each CLI resumes only itself
+(`claude --resume`, `codex exec resume`, `agy --conversation`, `opencode
+-s`); we keep the session id per backend per task and use it when eligible
+again. The note is the floor for cross-backend switches.
+
+**FAILED stops if the tree changed.** `git status --porcelain` (tracked and
+untracked) before and after; changed or not-a-repo means stop, print the
+dump path and the two options (`--keep-going`, or a git reset the user
+runs), exit 1. agentshell never reverts on its own. REFUSED and UNAVAILABLE
+still fall through. `?` in the REPL is read-only so it always falls through.
+
+**Windows are a list of one.** Only the 5h window is modelled; the weekly
+caps on Claude Max and Codex are not, until one is seen in `failures/`.
+The ledger shape is a list so that adding one is not a rewrite.
+
+**Config: `~/.agentshell/config.json`, absent means defaults.** Chain order,
+local model, attempt timeout, soft-limit fraction, extra destructive
+patterns. Not per-backend argv. `agentshell config init` writes a starter.
+CLI flags beat file beats defaults.
+
+**Code follows the glossary.** `run_backend` -> `attempt`, `RunOutput` ->
+`AttemptOutput`, `RATE_LIMITED` -> `REFUSED`, `run_with_failover` ->
+`run_task`. Done now, mechanically, with the tests as the net.
+
+**Destructive proposals are flagged, not blocked.** Pattern list in code
+plus config additions; matching proposals colour red with a warning line
+above the buffer. Plain `git push` is on the list: it is the moment a
+mistake leaves the machine. `git commit` is not.
+
+**The REPL gets `task <prompt>`.** Three agent verbs: `?` propose (read-
+only), `task` do (edit permission, full task semantics), `fix` diagnose.
+`!` rejected: history expansion in every other shell.
+
+**Public repo.** MIT, `requires-python >= 3.11`, GitHub Actions running
+`python -m unittest` on windows-latest and ubuntu-latest (ubuntu ships
+pwsh, so the PowerShell tests run there). GitHub-install only; PyPI
+`agentshell` is taken by someone else, so the distribution name is
+`agentshell-kj` (placeholder, Kevin's to rename) and the console script
+stays `agentshell`. No `kj638` anywhere in the repo.
+
+---
+
 ## 2026-09-18 — Progress streams to stderr; stdout is only the final answer
 
 **Context.** A multi-minute agent run was silent until it finished.
