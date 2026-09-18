@@ -3,6 +3,7 @@ command extraction. The PowerShell class spawns a real child - no quota
 involved, but skipped where there is no PowerShell."""
 import io
 import shutil
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -77,30 +78,36 @@ class PowershellScript(unittest.TestCase):
         self.assertIn("NativeCommandError", s)
 
 
+PY = sys.executable
+# A native command that exits 0 but writes to stderr, the way git does.
+NOISY = f"""& "{PY}" -c "import sys; sys.stderr.write('warn')\""""
+
+
 @unittest.skipUnless(shutil.which(POWERSHELL), "PowerShell not on PATH")
 class RealPowershell(unittest.TestCase):
     """The nine-case probe from 2026-09-18, reduced to the cases that
-    distinguish this wrapper from a naive one."""
+    distinguish this wrapper from a naive one. Platform-neutral on purpose:
+    CI runs these under pwsh on Ubuntu as well as PowerShell 5.1 here."""
 
     def run_quiet(self, cmd):
         with redirect_stderr(io.StringIO()):
             return run_command(cmd, Path(tempfile.gettempdir()))
 
     def test_native_exit_code_propagates(self):
-        self.assertEqual(self.run_quiet("cmd /c exit 3").exit_code, 3)
+        self.assertEqual(self.run_quiet(f'& "{PY}" -c "raise SystemExit(3)"').exit_code, 3)
 
     def test_cmdlet_failure_is_nonzero_with_text_stderr(self):
-        res = self.run_quiet("Get-Item C:\\agentshell-does-not-exist")
+        res = self.run_quiet("Get-Item ./agentshell-does-not-exist")
         self.assertEqual(res.exit_code, 1)
-        self.assertIn("Cannot find path", res.stderr)
+        self.assertIn("agentshell-does-not-exist", res.stderr)
         self.assertNotIn("CLIXML", res.stderr)
 
     def test_cmdlet_failure_after_successful_native_is_still_nonzero(self):
-        res = self.run_quiet("cmd /c exit 0; Get-Item C:\\agentshell-does-not-exist")
+        res = self.run_quiet(f'& "{PY}" -c "pass"; Get-Item ./agentshell-does-not-exist')
         self.assertEqual(res.exit_code, 1)
 
     def test_native_stderr_noise_with_zero_exit_is_success(self):
-        res = self.run_quiet('cmd /c "echo warn 1>&2"')
+        res = self.run_quiet(NOISY)
         self.assertEqual(res.exit_code, 0)
         self.assertIn("warn", res.stderr)
 

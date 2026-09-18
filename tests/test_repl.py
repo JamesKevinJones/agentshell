@@ -1,6 +1,7 @@
 """Drive the REPL loop through prompt_toolkit pipe input. Only exec paths -
 the agent paths would spawn real backends."""
 import io
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -37,9 +38,10 @@ class ReplLoop(unittest.TestCase):
                 h.close()
 
     def test_commands_are_recorded_with_exit_codes(self):
-        entries, _ = self.drive("cmd /c exit 0\rcmd /c exit 4\rn\rexit\r")
-        self.assertEqual([(e.command, e.exit_code) for e in entries],
-                         [("cmd /c exit 4", 4), ("cmd /c exit 0", 0)])
+        # A native command via python, so this runs under pwsh on Ubuntu too.
+        ok, bad = f'& "{sys.executable}" -c "pass"', f'& "{sys.executable}" -c "raise SystemExit(4)"'
+        entries, _ = self.drive(f"{ok}\r{bad}\rn\rexit\r")
+        self.assertEqual([(e.command, e.exit_code) for e in entries], [(bad, 4), (ok, 0)])
 
     def test_blank_and_cd_lines_are_not_recorded(self):
         entries, _ = self.drive("\rcd .\rexit\r")
