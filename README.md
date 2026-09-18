@@ -16,7 +16,7 @@ platform-neutral and the test suite runs on Ubuntu too.
 ## Install
 
 ```powershell
-pip install git+https://github.com/<you>/agentshell
+pip install git+https://github.com/JamesKevinJones/agentshell
 ```
 
 The wrapped CLIs are not dependencies; whichever of these are on `PATH` get
