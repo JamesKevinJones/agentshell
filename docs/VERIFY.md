@@ -41,6 +41,18 @@ Then check: `cmd /c exit 4` turns the prompt red with `[!4]` and offers
 `Diagnose with agent? [y/N]`; answer `n`. `cd ..` changes the prompt path.
 Up-arrow recalls `cmd /c exit 4` from SQLite. `exit` leaves.
 
+## Windows Terminal profile (the translucent look)
+
+The fragment in `contrib/windows-terminal-fragment.json` is installed at
+`%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragmentsgentshellgentshell.json`.
+Reopen Windows Terminal, open the tab dropdown: an `agentshell` profile should
+be listed. Opening it lands in the REPL with an acrylic-blurred background.
+To reinstall after editing the copy in `contrib/`:
+
+```bash
+Copy-Item contrib\windows-terminal-fragment.json "$env:LOCALAPPDATA\Microsoft\Windows Terminal\Fragmentsgentshellgentshell.json"
+```
+
 ## Status (no quota spent)
 
 ```bash

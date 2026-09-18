@@ -1,0 +1,49 @@
+{
+  "$help": "Windows Terminal fragment: adds an 'agentshell' profile without editing settings.json. Edit, then reopen Windows Terminal.",
+  "profiles": [
+    {
+      "name": "agentshell",
+      "commandline": "python -m agentshell repl",
+      "startingDirectory": "C:\\Users\\kj638\\Kevin codes\\agentshell",
+      "tabTitle": "agentshell",
+
+      "useAcrylic": true,
+      "opacity": 72,
+      "colorScheme": "agentshell-ink",
+
+      "font": { "face": "Cascadia Code", "size": 12, "weight": "normal" },
+      "padding": "18, 14, 18, 14",
+      "scrollbarState": "hidden",
+      "cursorShape": "filledBox",
+      "cursorColor": "#E6E6E6",
+      "antialiasingMode": "cleartype",
+      "bellStyle": "none",
+      "suppressApplicationTitle": true
+    }
+  ],
+  "schemes": [
+    {
+      "name": "agentshell-ink",
+      "background": "#0B0D10",
+      "foreground": "#D7DAE0",
+      "selectionBackground": "#2A3038",
+      "cursorColor": "#E6E6E6",
+      "black": "#1A1D22",
+      "brightBlack": "#5C6370",
+      "red": "#E06C75",
+      "brightRed": "#F28B92",
+      "green": "#98C379",
+      "brightGreen": "#B5DA94",
+      "yellow": "#E5C07B",
+      "brightYellow": "#F3D399",
+      "blue": "#61AFEF",
+      "brightBlue": "#8CC7FF",
+      "purple": "#C678DD",
+      "brightPurple": "#DA9BEC",
+      "cyan": "#56B6C2",
+      "brightCyan": "#7FD1DB",
+      "white": "#D7DAE0",
+      "brightWhite": "#FFFFFF"
+    }
+  ]
+}

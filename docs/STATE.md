@@ -20,7 +20,7 @@ by Claude at Kevin's request ("solve all the errors asap"):
   failure trap, `fix`, `explain`, `cd` builtin, SQLite history feeding
   fish-style ghost text and the agent's context block.
 
-Tests: 52, all green. Of those, 17 spawn a real child process (PowerShell,
+Tests: 53, all green. Of those, 17 spawn a real child process (PowerShell,
 python, or the REPL through prompt_toolkit pipe input) - none spend quota.
 
 ## In progress
@@ -29,15 +29,18 @@ Nothing half-done. Everything below is unverified-against-live, not unbuilt.
 
 ## The exact next step
 
-1. Live smoke, one backend, pinned so it cannot cascade:
-   `python -m agentshell --via claude "reply with the single word: pong"`.
-   Expect `pong` and `status` showing a token count for claude. If the
-   reply is raw JSON instead of `pong`, `parse_claude_style` needs the
-   real key names - the JSON on screen tells you which.
-2. Same with `--via codex` and `--via agy`.
-3. `python -m agentshell repl`, then `? list the five largest files here`.
-   Watch whether the backend *proposes* a command or *runs* one. If it
-   runs one, that backend's readonly flag is wrong (DECISIONS 2026-09-18).
+Live smoke done for all three frontier backends (claude, codex, agy all
+returned `pong`; agy needed its own parser, now pinned by its real JSON).
+
+1. Open the `agentshell` profile in Windows Terminal (see VERIFY.md) and
+   confirm the acrylic look. Tune `opacity` in the fragment to taste.
+2. In the REPL: `? list the five largest files here`. Watch whether the
+   backend *proposes* a command or *runs* one. If it runs one, that
+   backend's readonly flag is wrong (DECISIONS 2026-09-18).
+3. Nothing has been rate-limited yet, so no budget is learned. The first
+   real refusal is the first test of the reactive path - check
+   `~/.agentshell/failures/` afterwards and correct the regex if it was
+   classified FAILED instead of RATE_LIMITED.
 
 ## Open questions
 

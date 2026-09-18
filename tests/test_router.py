@@ -1,4 +1,5 @@
 """Failover behaviour with a fake runner. No real CLI is ever spawned."""
+import dataclasses
 import io
 import json
 import tempfile
@@ -6,12 +7,14 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 
-from agentshell.backends import AGY, CLAUDE, CODEX, parse_claude_style, parse_codex
+from agentshell.backends import AGY, CLAUDE, CODEX, parse_agy, parse_claude_style, parse_codex
 from agentshell.ledger import Ledger
 from agentshell.router import Outcome, classify, run_with_failover
 from agentshell.runner import RunOutput
 
 NOW = 1_000_000.0
+# A second claude-shaped backend for failover tests, so one fake ok() serves both.
+CLAUDE2 = dataclasses.replace(CLAUDE, name="claude2", argv=lambda prompt, readonly: ["claude2", prompt])
 
 
 def ok(text="done", tokens_in=100, tokens_out=20) -> RunOutput:
@@ -54,6 +57,16 @@ class Parsers(unittest.TestCase):
         self.assertEqual(p.text, "hi")
         self.assertEqual(p.usage.total, 52)
 
+    def test_agy_uses_response_and_charges_thinking_as_output(self):
+        live = json.dumps({"conversation_id": "5737", "status": "SUCCESS", "response": "pong\n",
+                           "duration_seconds": 3.8, "num_turns": 1,
+                           "usage": {"input_tokens": 21206, "output_tokens": 73, "thinking_tokens": 72,
+                                     "cache_read_tokens": 0, "total_tokens": 21279}})
+        p = parse_agy(live)
+        self.assertEqual(p.text, "pong")
+        self.assertEqual(p.usage.input_tokens, 21206)
+        self.assertEqual(p.usage.output_tokens, 145)
+
     def test_codex_collects_messages_and_usage(self):
         lines = [
             {"type": "item.completed", "item": {"type": "agent_message", "text": "first"}},
@@ -68,7 +81,7 @@ class Parsers(unittest.TestCase):
 
 
 class Failover(unittest.TestCase):
-    """Both backends here use the claude-style parser, so one fake `ok()` shape serves both."""
+    """claude -> claude2: same parser, so one fake ok() shape serves both."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -80,7 +93,7 @@ class Failover(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, AGY), via=None):
+    def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, CLAUDE2), via=None):
         def fake_runner(argv, cwd):
             self.calls.append(argv[0])
             return responses[argv[0]]
@@ -92,17 +105,17 @@ class Failover(unittest.TestCase):
             )
 
     def test_first_backend_ok_stops_the_chain(self):
-        code, parsed = self.run_chain({"claude": ok("from claude"), "agy": ok("from agy")})
+        code, parsed = self.run_chain({"claude": ok("from claude"), "claude2": ok("from claude2")})
         self.assertEqual(code, 0)
         self.assertEqual(parsed.text, "from claude")
         self.assertEqual(self.calls, ["claude"])
         self.assertEqual(Ledger.load(self.ledger_path).window_usage("claude", NOW), 120)
 
     def test_rate_limited_backend_falls_through_and_cools_down(self):
-        code, parsed = self.run_chain({"claude": limited(), "agy": ok("from agy")})
+        code, parsed = self.run_chain({"claude": limited(), "claude2": ok("from claude2")})
         self.assertEqual(code, 0)
-        self.assertEqual(parsed.text, "from agy")
-        self.assertEqual(self.calls, ["claude", "agy"])
+        self.assertEqual(parsed.text, "from claude2")
+        self.assertEqual(self.calls, ["claude", "claude2"])
         led = Ledger.load(self.ledger_path)
         self.assertTrue(led.cooling_down("claude", NOW + 1))
         self.assertEqual(len(list(self.failures.iterdir())), 1)
@@ -111,19 +124,19 @@ class Failover(unittest.TestCase):
         led = Ledger()
         led.mark_rate_limited("claude", NOW - 10)
         led.save(self.ledger_path)
-        self.run_chain({"claude": ok(), "agy": ok("from agy")})
-        self.assertEqual(self.calls, ["agy"])
+        self.run_chain({"claude": ok(), "claude2": ok("from claude2")})
+        self.assertEqual(self.calls, ["claude2"])
 
     def test_via_pins_and_does_not_fail_over(self):
-        code, parsed = self.run_chain({"claude": ok(), "agy": limited()}, via="agy")
+        code, parsed = self.run_chain({"claude": ok(), "claude2": limited()}, via="claude2")
         self.assertEqual(code, 1)
         self.assertIsNone(parsed)
-        self.assertEqual(self.calls, ["agy"])
+        self.assertEqual(self.calls, ["claude2"])
 
     def test_everything_refused_exits_one(self):
-        code, parsed = self.run_chain({"claude": limited(), "agy": limited()})
+        code, parsed = self.run_chain({"claude": limited(), "claude2": limited()})
         self.assertEqual(code, 1)
-        self.assertEqual(self.calls, ["claude", "agy"])
+        self.assertEqual(self.calls, ["claude", "claude2"])
 
 
 if __name__ == "__main__":

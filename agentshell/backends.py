@@ -78,7 +78,7 @@ def _json_lines(stdout: str) -> list[dict]:
 
 
 def parse_claude_style(stdout: str) -> Parsed:
-    """`claude -p --output-format json` and `agy -p --output-format json`.
+    """`claude -p --output-format json`. Verified live 2026-09-18.
 
     One object with type="result", result=<final text>, usage={...}.
     Cached input tokens are counted as input on purpose: the learned budget
@@ -94,6 +94,28 @@ def parse_claude_style(stdout: str) -> Parsed:
     return Parsed(
         text=str(result.get("result", stdout)),
         usage=Usage(input_tokens=inp, output_tokens=int(u.get("output_tokens", 0))),
+    )
+
+
+def parse_agy(stdout: str) -> Parsed:
+    """`agy -p --output-format json`. Verified live 2026-09-18 - NOT the
+    Claude shape despite the identical flags. One object:
+
+        {"conversation_id": ..., "status": "SUCCESS", "response": "pong\\n",
+         "usage": {"input_tokens": 21206, "output_tokens": 73,
+                   "thinking_tokens": 72, "cache_read_tokens": 0,
+                   "total_tokens": 21279}}
+
+    Thinking tokens are charged as output: they are generated, not read.
+    """
+    obj = next((o for o in reversed(_json_lines(stdout)) if "response" in o), {})
+    u = obj.get("usage", {})
+    return Parsed(
+        text=str(obj.get("response", stdout)).rstrip("\n"),
+        usage=Usage(
+            input_tokens=int(u.get("input_tokens", 0)) + int(u.get("cache_read_tokens", 0)),
+            output_tokens=int(u.get("output_tokens", 0)) + int(u.get("thinking_tokens", 0)),
+        ),
     )
 
 
@@ -177,7 +199,7 @@ CODEX = Backend(
 AGY = Backend(
     name="agy",
     argv=_agy_argv,
-    parse=parse_claude_style,
+    parse=parse_agy,
     rate_limit_patterns=(r"quota", r"RESOURCE_EXHAUSTED", r"rate.?limit", r"\b429\b"),
 )
 
