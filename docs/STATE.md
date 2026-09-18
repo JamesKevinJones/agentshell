@@ -3,7 +3,7 @@
 > Updated at the end of every session, by whichever agent was driving.
 > Keep it under a page. This is a baton, not a diary.
 
-**Last updated:** 2026-09-18 by claude-code (session 5)
+**Last updated:** 2026-09-18 by claude-code (session 5, pushed)
 
 ## Where things stand
 
@@ -23,7 +23,11 @@ one commit per step:
    README, CI on windows + ubuntu x py3.11-3.13, no personal paths in the
    tree. `pip install -e .` done; `agentshell status` works as a command.
 
-Tests: 102, all green. Nothing spends quota.
+Tests: 103, all green on CI: windows-latest and ubuntu-latest x Python 3.11-3.13
+(so the 3.11 floor and the pwsh path are both verified, not hoped).
+
+Public at https://github.com/JamesKevinJones/agentshell (pushed 2026-09-18
+after a security review that closed one finding - DECISIONS 2026-09-18).
 
 ## In progress
 
@@ -31,14 +35,11 @@ Nothing half-done.
 
 ## The exact next step
 
-1. `git remote add origin ...` and push - but run `/security-review` on the
-   pending diff first (global rule). The first CI run will show whether the
-   3.11 floor is true; nothing here has run below 3.14 locally.
-2. First live `task` from inside the REPL, on a throwaway repo: watch the
+1. First live `task` from inside the REPL, on a throwaway repo: watch the
    handoff note get written by the agent (`.agentshell/HANDOFF.md`).
-3. First live `?` proposal: confirm the read-only flag stops the agent from
+2. First live `?` proposal: confirm the read-only flag stops the agent from
    *doing* instead of proposing.
-4. Set `gh secret set CLAUDE_API_KEY` yourself if you want security.yml to
+3. Set `gh secret set CLAUDE_API_KEY` yourself if you want security.yml to
    run in CI (never paste the key into chat).
 
 ## Open questions
