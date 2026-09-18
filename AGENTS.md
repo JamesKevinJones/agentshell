@@ -1,0 +1,67 @@
+# agentshell
+
+The canonical context file. Claude Code, Antigravity (`agy`), and Codex all read
+this — directly or by import. Put durable project knowledge here; put
+session-to-session status in `docs/STATE.md`.
+
+## What this is
+
+A wrapper CLI that runs one coding prompt through a **failover chain** of agent
+CLIs. `ai "add a retry to fetch_user()"` picks the first backend whose 5-hour
+quota is not exhausted, runs it headless, streams the output, and records how
+much of the window it used. When every frontier backend is out, it falls back
+to a local open-source model over Ollama, which has no quota at all.
+
+The unit of work is one prompt. The **git working tree is the handoff**: if a
+backend dies mid-task, the next one is given the same prompt and sees whatever
+files the previous one already changed. Anything richer than that (transcript
+summaries, task files) is a later decision — see `docs/DECISIONS.md`.
+
+## Stack
+
+- Language / runtime: Python 3.12, **stdlib only** (same rule as `localforge`)
+- Tests: `unittest` (stdlib), run with `python -m unittest`
+- Backends wrapped (all must already be on PATH):
+  - `claude` — `claude -p --output-format json`
+  - `agy` — `agy -p --output-format json` (flag surface copies Claude's)
+  - `codex` — `codex exec --json`
+  - `opencode` — `opencode run --format json -m ollama/<model>` (local fallback)
+- Local model runtime: Ollama at `http://localhost:11434`, `gpt-oss:20b`
+- State: one JSON file, `~/.agentshell/ledger.json`
+
+## Layout
+
+```
+agentshell/
+  __main__.py   # python -m agentshell "prompt"
+  cli.py        # argparse only; no logic
+  backends.py   # one Backend per CLI: argv builder, result parser, rate-limit patterns
+  runner.py     # run_backend(): subprocess + capture   <- EXERCISE 1 lives here
+  ledger.py     # rolling 5-hour usage window per backend <- EXERCISE 2 lives here
+  router.py     # choose next backend, run, classify, record, retry
+tests/
+  test_ledger.py
+  test_router.py
+```
+
+## Rules
+
+1. Match the surrounding code — naming, structure, comment density.
+2. stdlib only. No `requests`, no `rich`, no `click`. If it feels necessary, ask.
+3. Never spend frontier quota in tests. Tests use fakes; live checks are manual
+   and listed in `docs/VERIFY.md`.
+4. Every non-OK backend run gets its raw stdout/stderr dumped to
+   `~/.agentshell/failures/`. Rate-limit patterns are learned from those dumps,
+   not guessed.
+5. Run the checks in `docs/VERIFY.md` before reporting work as done.
+
+## Read these too
+
+- `docs/STATE.md` — where we stopped, what's next
+- `docs/DECISIONS.md` — why things are the way they are
+- `docs/VERIFY.md` — how to prove a change works
+
+## Don't touch
+
+- `~/.agentshell/ledger.json` by hand while a run is in flight — it is
+  rewritten whole on every record.
