@@ -8,8 +8,10 @@ not a result.
 ## Install
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
+
+That installs prompt_toolkit and puts an `agentshell` command on PATH.
 
 The wrapped CLIs must be on PATH:
 
@@ -28,13 +30,13 @@ python -m unittest -v
 Prints which backend would be chosen and the exact argv, without running it:
 
 ```bash
-python -m agentshell --dry-run "say hello"
+agentshell --dry-run "say hello"
 ```
 
 ## REPL (no quota spent unless you type `?`, `fix`, `explain`, or answer `y`)
 
 ```bash
-python -m agentshell repl
+agentshell repl
 ```
 
 Then check: `cmd /c exit 4` turns the prompt red with `[!4]` and offers
@@ -53,10 +55,17 @@ To reinstall after editing the copy in `contrib/`:
 Copy-Item contrib\windows-terminal-fragment.json "$env:LOCALAPPDATA\Microsoft\Windows Terminal\Fragments\agentshell\agentshell.json"
 ```
 
+## Task machinery (no quota spent)
+
+In any git repo: `agentshell --dry-run "x"` opens no task (dry-run), but a
+real run creates `.agentshell/` there and adds `.agentshell/` to
+`.git/info/exclude`; `git status` must stay clean. After a stop,
+`agentshell continue` must print `continuing task <id>`.
+
 ## Status (no quota spent)
 
 ```bash
-python -m agentshell status
+agentshell status
 ```
 
 ## Live smoke (spends a few hundred tokens on ONE backend)
@@ -65,10 +74,10 @@ Only run this when you actually want to verify an adapter's JSON parsing
 against the real CLI. Pin the backend so it can't cascade:
 
 ```bash
-python -m agentshell --via claude "reply with the single word: pong"
+agentshell --via claude "reply with the single word: pong"
 ```
 
-Then check: the reply prints, exit code is 0, and `python -m agentshell status`
+Then check: the reply prints, exit code is 0, and `agentshell status`
 shows the token count for that backend went up.
 
 ## Known-failing

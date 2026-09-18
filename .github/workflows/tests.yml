@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unittest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .
+      # Ubuntu runners ship pwsh, so the PowerShell-backed tests run there too;
+      # shell.POWERSHELL prefers pwsh wherever it exists. No agent CLI is ever
+      # spawned by the suite (AGENTS.md rule 3).
+      - run: python -m unittest -v

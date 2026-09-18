@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# "agentshell" on PyPI belongs to someone else; the command is still `agentshell`.
+name = "agentshell-kj"
+version = "0.1.0"
+description = "A shell that hands coding work to whichever agent CLI still has quota, and to a local model when none does."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Kevin Jones" }]
+keywords = ["claude-code", "codex", "antigravity", "ollama", "shell", "repl", "agent"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+]
+dependencies = ["prompt_toolkit>=3.0"]
+
+[project.scripts]
+agentshell = "agentshell.cli:main"
+
+[tool.setuptools]
+packages = ["agentshell"]

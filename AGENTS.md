@@ -24,8 +24,8 @@ summaries, task files) is a later decision — see `docs/DECISIONS.md`.
 
 ## Stack
 
-- Language / runtime: Python 3.14, stdlib only **except `prompt_toolkit`, confined
-  to `repl.py`** (`pip install -r requirements.txt`)
+- Language / runtime: Python >= 3.11 (developed on 3.14), stdlib only **except
+  `prompt_toolkit`, confined to `repl.py`**. `pip install -e .` gives the `agentshell` command.
 - Tests: `unittest` (stdlib), run with `python -m unittest`
 - Backends wrapped (all must already be on PATH):
   - `claude` — `claude -p --output-format stream-json --verbose` (progress lines as it runs)
@@ -36,7 +36,8 @@ summaries, task files) is a later decision — see `docs/DECISIONS.md`.
 - REPL exec shell: PowerShell 5.1 via `-EncodedCommand` (`pwsh` preferred if ever installed)
 - Local model runtime: Ollama at `http://localhost:11434`, `gpt-oss:20b`
 - State: `~/.agentshell/ledger.json` (quota), `~/.agentshell/history.db` (commands),
-  `~/.agentshell/failures/` (raw dumps of refused backend runs)
+  `~/.agentshell/failures/` (raw dumps), `~/.agentshell/config.json` (optional);
+  per project: `.agentshell/` (task, handoff note, archive) excluded via .git/info/exclude
 
 ## Layout
 
@@ -47,7 +48,9 @@ agentshell/
   backends.py   # one Backend per CLI: argv builder, result parser, progress renderer, rate-limit patterns
   runner.py     # attempt(): Popen, on_line streaming, timer timeout, missing-exe -> 127
   ledger.py     # rolling 5-hour usage window per backend, learned budgets, cooldowns
-  router.py     # choose next backend, run, classify, record, retry
+  router.py     # run_task: choose backend, attempt, classify, record, hand off, stop or retry
+  task.py       # .agentshell/ in the project: current task, HANDOFF.md, archive; git status snapshots
+  config.py     # ~/.agentshell/config.json, five knobs, absent means defaults
   history.py    # SQLite command history (Atuin fields) + as_context() for the agent
   shell.py      # REPL logic with no UI: parse_line, PowerShell wrapper, prompts, extract_command
   repl.py       # prompt_toolkit loop; the only file that imports it
@@ -66,6 +69,8 @@ tests/          # one file per module; RealPowershell + ReplLoop spawn a real ch
 5. Run the checks in `docs/VERIFY.md` before reporting work as done.
 
 ## Read these too
+
+- `CONTEXT.md` — the glossary; code and docs use its words (task, attempt, refusal, proposal)
 
 - `docs/STATE.md` — where we stopped, what's next
 - `docs/DECISIONS.md` — why things are the way they are

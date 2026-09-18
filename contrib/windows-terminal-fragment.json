@@ -4,7 +4,7 @@
     {
       "name": "agentshell",
       "commandline": "python -m agentshell repl",
-      "startingDirectory": "C:\\Users\\kj638\\Kevin codes\\agentshell",
+      "startingDirectory": "%USERPROFILE%",
       "tabTitle": "agentshell",
 
       "useAcrylic": true,
