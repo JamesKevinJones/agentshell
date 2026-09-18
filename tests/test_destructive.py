@@ -77,6 +77,18 @@ class ReplAgentVerbs(unittest.TestCase):
         self.assertIn("did it", out)
         self.assertEqual([(e.command, e.exit_code) for e in entries], [("task add a retry", 0)])
 
+    def test_slash_commands_are_quota_free_and_read_only(self):
+        calls = []
+        def fake(prompt, cwd, **kw):
+            calls.append(prompt)
+            return 0, Parsed("x", Usage())
+        _, out, err = self.drive("/help\r/history\r/models\r/config\r/nope\rexit\r", fake)
+        self.assertEqual(calls, [])  # nothing reached an agent
+        self.assertIn("task <goal>", out)
+        self.assertIn("backend", out)          # /models -> the status table
+        self.assertIn("chain", out)            # /config
+        self.assertIn("unknown command /nope", err)
+
     def test_destructive_proposal_warns_but_is_offered(self):
         def fake(prompt, cwd, **kw):
             self.assertTrue(kw.get("readonly"))

@@ -31,7 +31,7 @@ POWERSHELL = shutil.which("pwsh") or "powershell"
 
 @dataclass(frozen=True)
 class Line:
-    kind: str   # exit | cd | ai | task | explain | fix | exec | empty
+    kind: str   # exit | cd | ai | task | explain | fix | slash | exec | empty
     arg: str
 
 
@@ -39,8 +39,10 @@ def parse_line(raw: str) -> Line:
     line = raw.strip()
     if not line:
         return Line("empty", "")
-    if line in ("exit", "quit"):
+    if line in ("exit", "quit", "/exit", "/quit"):
         return Line("exit", "")
+    if line.startswith("/"):
+        return Line("slash", line[1:].strip())
     if line.startswith("?"):
         return Line("ai", line[1:].strip())
     if line.startswith("ai "):

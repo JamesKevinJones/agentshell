@@ -19,6 +19,7 @@ from prompt_toolkit.history import History as PTHistory
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
+from . import config as config_mod
 from .config import Config
 from .history import History
 from .router import run_task
@@ -68,6 +69,8 @@ class ModeLexer(Lexer):
             parsed = parse_line(line)
             if parsed.kind in ("ai", "explain", "fix", "task"):
                 style = "class:ai"
+            elif parsed.kind == "slash":
+                style = "class:banner"
             elif parsed.kind == "exec" and destructive_match(line, self.extra):
                 style = "class:danger"
             else:
@@ -92,6 +95,47 @@ def ask(prompt: str, cfg: Config) -> str | None:
     return parsed.text
 
 
+HELP = """agentshell - what a line does depends on how it starts
+
+  <anything else>     runs in PowerShell; exit code and stderr are captured
+  ? <goal>            the agent proposes ONE command into your input buffer (read-only)
+  task <goal>         the agent does the work, with edit permission and failover
+  fix                 after a failure: why it failed, plus a corrected command
+  explain <command>   flag-by-flag explanation, no execution
+  cd <dir>            change directory (a builtin, like every shell)
+
+  /help               this text
+  /backends           each backend, its 5h usage, learned budget, and whether it is eligible
+  /models             same as /backends
+  /config             the effective configuration and where it came from
+  /history [n]        the last n commands with exit codes (default 15)
+  /exit               leave (also: exit, quit, Ctrl-D)
+
+Red input means the line matches the destructive list (Remove-Item, git push,
+git reset --hard, overwrite redirects, ...). It is flagged, never blocked.
+"""
+
+
+def slash(cmd: str, cfg: Config, hist: History) -> None:
+    """The /commands. Everything here is read-only and quota-free."""
+    name, _, arg = cmd.partition(" ")
+    name = name.lower()
+    if name in ("help", "?", ""):
+        print(HELP, end="")
+    elif name in ("backends", "models", "status"):
+        from .cli import status
+        status(cfg.backends())
+    elif name == "config":
+        config_mod.show(cfg)
+    elif name == "history":
+        n = int(arg) if arg.strip().isdigit() else 15
+        for e in reversed(hist.recent(limit=n)):
+            mark = "ok " if e.exit_code == 0 else f"!{e.exit_code:<2}"
+            print(f"  {mark} {e.command}")
+    else:
+        print(f"unknown command /{name} - try /help", file=sys.stderr)
+
+
 def warn_if_destructive(proposal: str, cfg: Config) -> None:
     """One line above the buffer. Flagged, never blocked."""
     name = destructive_match(proposal, cfg.destructive_patterns)
@@ -109,8 +153,8 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
         lexer=ModeLexer(cfg.destructive_patterns),
         style=STYLE,
     )
-    print("agentshell - plain lines run in PowerShell; '? <goal>' proposes a command;"
-          " 'task <goal>' lets the agent do it; 'fix' after a failure; 'explain <cmd>'; 'exit'.")
+    print("agentshell - plain lines run in PowerShell. '? <goal>' proposes, 'task <goal>' does,"
+          " 'fix' diagnoses. /help for everything.")
 
     last_exit = 0
     last_failure: tuple[str, CommandResult] | None = None
@@ -131,6 +175,10 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
             continue
         if line.kind == "exit":
             break
+
+        if line.kind == "slash":
+            slash(line.arg, cfg, hist)
+            continue
 
         if line.kind == "cd":
             target = Path(line.arg).expanduser() if line.arg else Path.home()

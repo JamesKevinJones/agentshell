@@ -37,7 +37,7 @@ def with_piped_input(prompt: str, stdin: TextIO) -> str:
     return f"{prompt}\n\n--- piped input ---\n{data}"
 
 
-def _status(chain: tuple[Backend, ...]) -> int:
+def status(chain: tuple[Backend, ...]) -> int:
     ledger = Ledger.load()
     now = time.time()
     print(f"{'backend':<16}{'5h tokens':>12}  {'budget':>10}  state")
@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     config.apply(cfg)
 
     if args.prompt == "status":
-        return _status(chain)
+        return status(chain)
     if args.prompt == "repl":
         # Imported here so the one-shot CLI stays importable without prompt_toolkit.
         from .repl import main as repl_main

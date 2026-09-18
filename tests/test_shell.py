@@ -34,6 +34,9 @@ class ParseLine(unittest.TestCase):
         self.check('cd "C:\\Program Files"', "cd", "C:\\Program Files")
         self.check("cdx", "exec", "cdx")
         self.check("git status", "exec", "git status")
+        self.check("/help", "slash", "help")
+        self.check("/history 5", "slash", "history 5")
+        self.check("/exit", "exit")
 
 
 class ExtractCommand(unittest.TestCase):
