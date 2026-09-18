@@ -92,6 +92,7 @@ def run_task(
     via: str | None = None,
     dry_run: bool = False,
     readonly: bool = False,
+    timeout: int = 900,
     runner: Callable[..., AttemptOutput] = attempt,
     now: Callable[[], float] = time.time,
     ledger_path: Path = DEFAULT_PATH,
@@ -115,7 +116,7 @@ def run_task(
             return 0, None
 
         print(f"[agentshell] -> {backend.name}", file=sys.stderr)
-        out = runner(argv, cwd, on_line=progress_printer(backend))
+        out = runner(argv, cwd, timeout=timeout, on_line=progress_printer(backend))
         outcome = classify(backend, out)
         t = now()
 

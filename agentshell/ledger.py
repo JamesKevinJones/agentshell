@@ -71,20 +71,11 @@ class Ledger:
         return self.backends.setdefault(backend, BackendState())
 
     def window_usage(self, backend: str, now: float) -> int:
-        """EXERCISE 2 - tokens `backend` has used in the last WINDOW_SECONDS.
+        """Tokens `backend` has used in the window ending at `now`.
 
-        Contract:
-          - Sum `tokens` over events for this backend whose `at` is within
-            the window ending at `now`: that is, `now - at < WINDOW_SECONDS`.
-          - An event exactly WINDOW_SECONDS old is *outside* the window.
-          - Events from other backends are ignored.
-          - Events in the future (at > now) should not happen, but if they
-            do, count them - a clock skew should not hide usage.
-          - No events -> 0.
-
-        This is about three lines. The point is not the code, it is making
-        you decide what "the last 5 hours" means at the boundaries, because
-        that boundary is what tests/test_ledger.py pins.
+        `now - at < WINDOW_SECONDS`: an event exactly one window old is
+        outside; a future event (clock skew) still counts. Pinned by
+        tests/test_ledger.py.
         """
         return sum(e.tokens
                    for e in self.events

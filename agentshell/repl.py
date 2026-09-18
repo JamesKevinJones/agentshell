@@ -19,6 +19,7 @@ from prompt_toolkit.history import History as PTHistory
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
+from .config import Config
 from .history import History
 from .router import run_task
 from .shell import (CommandResult, explain_prompt, extract_command, fix_prompt, parse_line,
@@ -69,16 +70,18 @@ def prompt_fragments(last_exit: int) -> FormattedText:
     return FormattedText([status, ("", " "), ("class:cwd", cwd), ("", " > ")])
 
 
-def ask(prompt: str) -> str | None:
+def ask(prompt: str, cfg: Config) -> str | None:
     """Read-only question to whichever backend the router picks."""
-    code, parsed = run_task(prompt, cwd=Path.cwd(), readonly=True)
+    code, parsed = run_task(prompt, cwd=Path.cwd(), chain=cfg.backends(), readonly=True,
+                            timeout=cfg.timeout_seconds)
     if parsed is None:
         print("[agentshell] no backend could answer", file=sys.stderr)
         return None
     return parsed.text
 
 
-def main(history_path: Path | None = None) -> int:
+def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
+    cfg = cfg or Config()
     hist = History(history_path) if history_path else History()
     session: PromptSession = PromptSession(
         history=SqliteHistory(hist),
@@ -120,14 +123,14 @@ def main(history_path: Path | None = None) -> int:
             continue
 
         if line.kind == "ai":
-            answer = ask(propose_prompt(line.arg, Path.cwd(), hist.as_context()))
+            answer = ask(propose_prompt(line.arg, Path.cwd(), hist.as_context()), cfg)
             if answer:
                 print(answer)
                 pending = extract_command(answer) or ""
             continue
 
         if line.kind == "explain":
-            answer = ask(explain_prompt(line.arg))
+            answer = ask(explain_prompt(line.arg), cfg)
             if answer:
                 print(answer)
             continue
@@ -137,7 +140,7 @@ def main(history_path: Path | None = None) -> int:
                 print("fix: nothing has failed yet", file=sys.stderr)
                 continue
             cmd, res = last_failure
-            answer = ask(fix_prompt(cmd, res.exit_code, res.stderr, Path.cwd(), hist.as_context()))
+            answer = ask(fix_prompt(cmd, res.exit_code, res.stderr, Path.cwd(), hist.as_context()), cfg)
             if answer:
                 print(answer)
                 pending = extract_command(answer) or ""
@@ -158,7 +161,7 @@ def main(history_path: Path | None = None) -> int:
                 reply = ""
             if reply.strip().lower() in ("y", "yes"):
                 answer = ask(fix_prompt(line.arg, res.exit_code, res.stderr, Path.cwd(),
-                                        hist.as_context()))
+                                        hist.as_context()), cfg)
                 if answer:
                     print(answer)
                     pending = extract_command(answer) or ""
