@@ -45,7 +45,7 @@ at 7s and the answer at 13s, with stdout carrying only the final text.
 4. Nothing has been rate-limited yet, so no budget is learned. The first
    real refusal is the first test of the reactive path - check
    `~/.agentshell/failures/` afterwards and correct the regex if it was
-   classified FAILED instead of RATE_LIMITED.
+   classified FAILED instead of REFUSED.
 
 ## Open questions
 

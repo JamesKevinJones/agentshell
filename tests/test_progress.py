@@ -9,31 +9,31 @@ from pathlib import Path
 
 from agentshell.backends import CLAUDE, CODEX, progress_claude, progress_codex
 from agentshell.router import progress_printer
-from agentshell.runner import run_backend
+from agentshell.runner import attempt
 
 PY = sys.executable
 HERE = Path.cwd()
 
 
-class RunnerStreams(unittest.TestCase):
+class AttemptStreams(unittest.TestCase):
     def test_on_line_sees_lines_before_the_process_exits(self):
         # Three lines, 150ms apart. If streaming works, the first callback
         # fires well before the child finishes.
         script = "import sys,time\nfor i in range(3):\n print('L%d'%i); sys.stdout.flush(); time.sleep(0.15)"
         seen = []
         start = time.monotonic()
-        run_backend([PY, "-c", script], HERE, on_line=lambda l: seen.append((l, time.monotonic() - start)))
+        attempt([PY, "-c", script], HERE, on_line=lambda l: seen.append((l, time.monotonic() - start)))
         self.assertEqual([l for l, _ in seen], ["L0", "L1", "L2"])
         self.assertLess(seen[0][1], 0.25, "first line arrived only after the process ended")
 
     def test_full_stdout_is_still_returned(self):
-        out = run_backend([PY, "-c", "print('a'); print('b')"], HERE, on_line=lambda l: None)
+        out = attempt([PY, "-c", "print('a'); print('b')"], HERE, on_line=lambda l: None)
         self.assertEqual(out.stdout.splitlines(), ["a", "b"])
 
     def test_stderr_heavy_child_does_not_deadlock(self):
         # 200 KB on stderr exceeds the pipe buffer; without a drain thread this hangs.
         script = "import sys\nsys.stderr.write('e' * 200_000)\nprint('done')"
-        out = run_backend([PY, "-c", script], HERE, timeout=20)
+        out = attempt([PY, "-c", script], HERE, timeout=20)
         self.assertEqual(out.exit_code, 0)
         self.assertEqual(out.stdout.strip(), "done")
         self.assertEqual(len(out.stderr), 200_000)

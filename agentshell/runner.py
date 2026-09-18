@@ -11,15 +11,15 @@ from typing import Callable
 
 
 @dataclass(frozen=True)
-class RunOutput:
+class AttemptOutput:
     exit_code: int
     stdout: str
     stderr: str
     seconds: float
 
 
-def run_backend(argv: list[str], cwd: Path, timeout: int = 900,
-                on_line: Callable[[str], None] | None = None) -> RunOutput:
+def attempt(argv: list[str], cwd: Path, timeout: int = 900,
+            on_line: Callable[[str], None] | None = None) -> AttemptOutput:
     """Run `argv` in `cwd`, return everything it produced.
 
     Contract:
@@ -42,7 +42,7 @@ def run_backend(argv: list[str], cwd: Path, timeout: int = 900,
     # subprocess cannot find by bare name; resolve through PATH first.
     exe = shutil.which(argv[0])
     if exe is None:
-        return RunOutput(127, "", f"agentshell: {argv[0]} not found on PATH", 0.0)
+        return AttemptOutput(127, "", f"agentshell: {argv[0]} not found on PATH", 0.0)
 
     start = time.monotonic()
     proc = subprocess.Popen(
@@ -85,5 +85,5 @@ def run_backend(argv: list[str], cwd: Path, timeout: int = 900,
     stderr = "".join(stderr_chunks)
     seconds = time.monotonic() - start
     if timed_out.is_set():
-        return RunOutput(-1, stdout, (stderr + "\nagentshell: timeout").strip(), seconds)
-    return RunOutput(proc.returncode, stdout, stderr, seconds)
+        return AttemptOutput(-1, stdout, (stderr + "\nagentshell: timeout").strip(), seconds)
+    return AttemptOutput(proc.returncode, stdout, stderr, seconds)

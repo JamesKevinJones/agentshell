@@ -9,7 +9,7 @@ from typing import TextIO
 
 from .backends import BY_NAME, DEFAULT_CHAIN
 from .ledger import Ledger
-from .router import candidates, run_with_failover
+from .router import candidates, run_task
 
 # Piped input is prompt text and prompt text is quota. A 40 MB log is not a
 # question, it is a bill. Keep the tail: the interesting part of a log is
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         return repl_main()
 
     prompt = with_piped_input(args.prompt, sys.stdin)
-    code, parsed = run_with_failover(prompt, cwd=args.cwd, via=args.via, dry_run=args.dry_run)
+    code, parsed = run_task(prompt, cwd=args.cwd, via=args.via, dry_run=args.dry_run)
     if parsed is not None:
         print(parsed.text)
     return code

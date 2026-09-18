@@ -104,7 +104,7 @@ class Ledger:
     def record(self, backend: str, tokens: int, now: float) -> None:
         self.events.append(Event(backend=backend, at=now, tokens=tokens))
 
-    def mark_rate_limited(self, backend: str, now: float) -> None:
+    def mark_refused(self, backend: str, now: float) -> None:
         """The window is full. Learn its size and back off.
 
         The learned budget is whatever we used in the window that just got

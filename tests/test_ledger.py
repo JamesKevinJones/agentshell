@@ -43,7 +43,7 @@ class LearnedBudget(unittest.TestCase):
         led = Ledger()
         led.record("claude", 4000, NOW - 100)
         led.record("claude", 6000, NOW - 50)
-        led.mark_rate_limited("claude", NOW)
+        led.mark_refused("claude", NOW)
         self.assertEqual(led.state("claude").learned_budget, 10_000)
         self.assertTrue(led.cooling_down("claude", NOW + 1))
         self.assertFalse(led.cooling_down("claude", NOW + WINDOW_SECONDS))

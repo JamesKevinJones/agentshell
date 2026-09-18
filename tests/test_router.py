@@ -9,22 +9,22 @@ from pathlib import Path
 
 from agentshell.backends import AGY, CLAUDE, CODEX, parse_agy, parse_claude_style, parse_codex
 from agentshell.ledger import Ledger
-from agentshell.router import Outcome, classify, run_with_failover
-from agentshell.runner import RunOutput
+from agentshell.router import Outcome, classify, run_task
+from agentshell.runner import AttemptOutput
 
 NOW = 1_000_000.0
 # A second claude-shaped backend for failover tests, so one fake ok() serves both.
 CLAUDE2 = dataclasses.replace(CLAUDE, name="claude2", argv=lambda prompt, readonly: ["claude2", prompt])
 
 
-def ok(text="done", tokens_in=100, tokens_out=20) -> RunOutput:
+def ok(text="done", tokens_in=100, tokens_out=20) -> AttemptOutput:
     body = {"type": "result", "result": text, "is_error": False,
             "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out}}
-    return RunOutput(0, json.dumps(body), "", 1.0)
+    return AttemptOutput(0, json.dumps(body), "", 1.0)
 
 
-def limited() -> RunOutput:
-    return RunOutput(1, "", "Error: You've hit your usage limit. Rate limit resets at 3pm.", 0.5)
+def limited() -> AttemptOutput:
+    return AttemptOutput(1, "", "Error: You've hit your usage limit. Rate limit resets at 3pm.", 0.5)
 
 
 class Classify(unittest.TestCase):
@@ -32,20 +32,20 @@ class Classify(unittest.TestCase):
         self.assertIs(classify(CLAUDE, ok()), Outcome.OK)
 
     def test_rate_limit_text_on_nonzero_exit(self):
-        self.assertIs(classify(CLAUDE, limited()), Outcome.RATE_LIMITED)
+        self.assertIs(classify(CLAUDE, limited()), Outcome.REFUSED)
 
     def test_missing_executable_is_unavailable(self):
-        out = RunOutput(127, "", "No such file or directory", 0.0)
+        out = AttemptOutput(127, "", "No such file or directory", 0.0)
         self.assertIs(classify(CODEX, out), Outcome.UNAVAILABLE)
 
     def test_other_nonzero_is_failed(self):
-        out = RunOutput(2, "", "SyntaxError in your prompt", 0.0)
+        out = AttemptOutput(2, "", "SyntaxError in your prompt", 0.0)
         self.assertIs(classify(AGY, out), Outcome.FAILED)
 
     def test_is_error_in_json_with_limit_text_is_rate_limited(self):
         body = {"type": "result", "is_error": True, "result": "rate limit exceeded"}
-        out = RunOutput(0, json.dumps(body, indent=1), "", 0.0)
-        self.assertIs(classify(CLAUDE, out), Outcome.RATE_LIMITED)
+        out = AttemptOutput(0, json.dumps(body, indent=1), "", 0.0)
+        self.assertIs(classify(CLAUDE, out), Outcome.REFUSED)
 
 
 class Parsers(unittest.TestCase):
@@ -93,12 +93,12 @@ class Failover(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, CLAUDE2), via=None):
+    def run_chain(self, responses: dict[str, AttemptOutput], chain=(CLAUDE, CLAUDE2), via=None):
         def fake_runner(argv, cwd, **kw):
             self.calls.append(argv[0])
             return responses[argv[0]]
         with redirect_stderr(io.StringIO()):
-            return run_with_failover(
+            return run_task(
                 "do the thing", cwd=Path.cwd(), chain=chain, via=via,
                 runner=fake_runner, now=lambda: NOW,
                 ledger_path=self.ledger_path, failure_dir=self.failures,
@@ -122,7 +122,7 @@ class Failover(unittest.TestCase):
 
     def test_cooling_backend_is_not_even_called(self):
         led = Ledger()
-        led.mark_rate_limited("claude", NOW - 10)
+        led.mark_refused("claude", NOW - 10)
         led.save(self.ledger_path)
         self.run_chain({"claude": ok(), "claude2": ok("from claude2")})
         self.assertEqual(self.calls, ["claude2"])

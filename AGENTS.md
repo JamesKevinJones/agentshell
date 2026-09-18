@@ -45,7 +45,7 @@ agentshell/
   __main__.py   # python -m agentshell "prompt"
   cli.py        # argparse only; no logic
   backends.py   # one Backend per CLI: argv builder, result parser, progress renderer, rate-limit patterns
-  runner.py     # run_backend(): Popen, on_line streaming, timer timeout, missing-exe -> 127
+  runner.py     # attempt(): Popen, on_line streaming, timer timeout, missing-exe -> 127
   ledger.py     # rolling 5-hour usage window per backend, learned budgets, cooldowns
   router.py     # choose next backend, run, classify, record, retry
   history.py    # SQLite command history (Atuin fields) + as_context() for the agent

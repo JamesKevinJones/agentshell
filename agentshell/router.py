@@ -10,28 +10,28 @@ from typing import Callable
 
 from .backends import DEFAULT_CHAIN, Backend, Parsed
 from .ledger import DEFAULT_PATH, Ledger
-from .runner import RunOutput, run_backend
+from .runner import AttemptOutput, attempt
 
 FAILURE_DIR = Path.home() / ".agentshell" / "failures"
 
 
 class Outcome(enum.Enum):
     OK = "ok"
-    RATE_LIMITED = "rate-limited"
+    REFUSED = "refused"
     UNAVAILABLE = "unavailable"  # not on PATH, or timed out
     FAILED = "failed"            # non-zero exit for some other reason
 
 
-def classify(backend: Backend, out: RunOutput) -> Outcome:
+def classify(backend: Backend, out: AttemptOutput) -> Outcome:
     if out.exit_code == 0:
         # claude/agy can exit 0 and still report is_error in the JSON.
-        if '"is_error": true' in out.stdout and backend.looks_rate_limited(out.stdout, out.stderr):
-            return Outcome.RATE_LIMITED
+        if '"is_error": true' in out.stdout and backend.looks_refused(out.stdout, out.stderr):
+            return Outcome.REFUSED
         return Outcome.OK
     if out.exit_code in (127, -1):
         return Outcome.UNAVAILABLE
-    if backend.looks_rate_limited(out.stdout, out.stderr):
-        return Outcome.RATE_LIMITED
+    if backend.looks_refused(out.stdout, out.stderr):
+        return Outcome.REFUSED
     return Outcome.FAILED
 
 
@@ -57,7 +57,7 @@ def candidates(chain: tuple[Backend, ...], ledger: Ledger, now: float,
 
 
 def progress_printer(backend: Backend, stream=None) -> Callable[[str], None]:
-    """An on_line callback for run_backend: parse the line as one JSON event,
+    """An on_line callback for attempt: parse the line as one JSON event,
     ask the backend for a human summary, print it to stderr as it happens.
 
     stderr on purpose - stdout stays the final answer, so
@@ -77,7 +77,7 @@ def progress_printer(backend: Backend, stream=None) -> Callable[[str], None]:
     return on_line
 
 
-def dump_failure(backend: Backend, out: RunOutput, now: float, where: Path = FAILURE_DIR) -> Path:
+def dump_failure(backend: Backend, out: AttemptOutput, now: float, where: Path = FAILURE_DIR) -> Path:
     where.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
     path = where / f"{stamp}-{backend.name}.json"
@@ -85,14 +85,14 @@ def dump_failure(backend: Backend, out: RunOutput, now: float, where: Path = FAI
     return path
 
 
-def run_with_failover(
+def run_task(
     prompt: str,
     cwd: Path,
     chain: tuple[Backend, ...] = DEFAULT_CHAIN,
     via: str | None = None,
     dry_run: bool = False,
     readonly: bool = False,
-    runner: Callable[..., RunOutput] = run_backend,
+    runner: Callable[..., AttemptOutput] = attempt,
     now: Callable[[], float] = time.time,
     ledger_path: Path = DEFAULT_PATH,
     failure_dir: Path = FAILURE_DIR,
@@ -129,8 +129,8 @@ def run_with_failover(
         path = dump_failure(backend, out, t, failure_dir)
         print(f"[agentshell] {backend.name}: {outcome.value} ({out.seconds:.0f}s) -> {path}",
               file=sys.stderr)
-        if outcome is Outcome.RATE_LIMITED and backend.metered:
-            ledger.mark_rate_limited(backend.name, t)
+        if outcome is Outcome.REFUSED and backend.metered:
+            ledger.mark_refused(backend.name, t)
             ledger.save(ledger_path, now=t)
         # UNAVAILABLE and FAILED both just fall through to the next backend.
 

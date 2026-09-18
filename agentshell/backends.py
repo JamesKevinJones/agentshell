@@ -49,7 +49,7 @@ class Backend:
     # The final answer is never shown here; that is parse()'s job at the end.
     progress: Callable[[dict], str | None] = lambda event: None
 
-    def looks_rate_limited(self, stdout: str, stderr: str) -> bool:
+    def looks_refused(self, stdout: str, stderr: str) -> bool:
         blob = stdout + "\n" + stderr
         return any(re.search(p, blob, re.IGNORECASE) for p in self.rate_limit_patterns)
 

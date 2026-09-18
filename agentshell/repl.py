@@ -20,7 +20,7 @@ from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
 from .history import History
-from .router import run_with_failover
+from .router import run_task
 from .shell import (CommandResult, explain_prompt, extract_command, fix_prompt, parse_line,
                     propose_prompt, run_command)
 
@@ -71,7 +71,7 @@ def prompt_fragments(last_exit: int) -> FormattedText:
 
 def ask(prompt: str) -> str | None:
     """Read-only question to whichever backend the router picks."""
-    code, parsed = run_with_failover(prompt, cwd=Path.cwd(), readonly=True)
+    code, parsed = run_task(prompt, cwd=Path.cwd(), readonly=True)
     if parsed is None:
         print("[agentshell] no backend could answer", file=sys.stderr)
         return None
