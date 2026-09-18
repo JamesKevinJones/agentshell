@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from .backends import DEFAULT_CHAIN, Backend, Parsed
+from . import task as tasks
 from .ledger import DEFAULT_PATH, Ledger
 from .runner import AttemptOutput, attempt
 
@@ -56,9 +57,11 @@ def candidates(chain: tuple[Backend, ...], ledger: Ledger, now: float,
     return out
 
 
-def progress_printer(backend: Backend, stream=None) -> Callable[[str], None]:
+def progress_printer(backend: Backend, stream=None,
+                     sink: list[str] | None = None) -> Callable[[str], None]:
     """An on_line callback for attempt: parse the line as one JSON event,
     ask the backend for a human summary, print it to stderr as it happens.
+    `sink` collects the same lines, for the derived handoff note.
 
     stderr on purpose - stdout stays the final answer, so
     `agentshell "..." | Out-File` gets the result and not the play-by-play.
@@ -74,6 +77,8 @@ def progress_printer(backend: Backend, stream=None) -> Callable[[str], None]:
         text = backend.progress(event)
         if text:
             print(f"  {text}", file=stream or sys.stderr, flush=True)
+            if sink is not None:
+                sink.append(text)
     return on_line
 
 
@@ -92,6 +97,7 @@ def run_task(
     via: str | None = None,
     dry_run: bool = False,
     readonly: bool = False,
+    keep_going: bool = False,
     timeout: int = 900,
     runner: Callable[..., AttemptOutput] = attempt,
     now: Callable[[], float] = time.time,
@@ -100,23 +106,35 @@ def run_task(
 ) -> tuple[int, Parsed | None]:
     """Walk the chain until one backend returns OK. Returns (exit_code, parsed).
 
-    `readonly` asks the backend to answer without touching the working tree
-    (see Backend.argv). `runner`, `now`, `ledger_path` and `failure_dir`
-    exist so tests can substitute fakes and a temp directory.
+    With `readonly` (proposals, explain, fix) there is no task: nothing can
+    change, so every non-OK outcome just falls through. Otherwise this opens
+    a task in `.agentshell/`, hands each attempt the previous handoff note,
+    and stops - rather than falling through - when an attempt FAILED after
+    changing the working tree, unless `keep_going`.
+
+    `runner`, `now`, `ledger_path` and `failure_dir` exist so tests can
+    substitute fakes and a temp directory.
     """
     ledger = Ledger.load(ledger_path)
+    task = None if (readonly or dry_run) else tasks.open_task(cwd, prompt, now())
 
     for backend, reason in candidates(chain, ledger, now(), via):
         if reason:
             print(f"[agentshell] {backend.name}: {reason}", file=sys.stderr)
             continue
-        argv = backend.argv(prompt, readonly)
+
+        note = tasks.read_note(cwd) if task else None
+        full_prompt = tasks.build_prompt(prompt, note) if task else prompt
+        argv = backend.argv(full_prompt, readonly)
         if dry_run:
             print(f"[agentshell] would run {backend.name}: {argv}", file=sys.stderr)
             return 0, None
 
-        print(f"[agentshell] -> {backend.name}", file=sys.stderr)
-        out = runner(argv, cwd, timeout=timeout, on_line=progress_printer(backend))
+        print(f"[agentshell] -> {backend.name}" + (" (with handoff note)" if note else ""), file=sys.stderr)
+        before = tasks.git_status(cwd) if task else None
+        note_before = tasks.note_mtime(cwd) if task else 0.0
+        progress: list[str] = []
+        out = runner(argv, cwd, timeout=timeout, on_line=progress_printer(backend, sink=progress))
         outcome = classify(backend, out)
         t = now()
 
@@ -125,6 +143,9 @@ def run_task(
             if backend.metered:
                 ledger.record(backend.name, parsed.usage.total, t)
                 ledger.save(ledger_path, now=t)
+            if task:
+                task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds))
+                tasks.close(task, cwd, "done")
             return 0, parsed
 
         path = dump_failure(backend, out, t, failure_dir)
@@ -133,7 +154,29 @@ def run_task(
         if outcome is Outcome.REFUSED and backend.metered:
             ledger.mark_refused(backend.name, t)
             ledger.save(ledger_path, now=t)
-        # UNAVAILABLE and FAILED both just fall through to the next backend.
+        if task is None:
+            continue  # read-only: nothing to hand off, nothing to protect
+
+        task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds, dump=str(path)))
+        # The agent may have written its own note before being cut off; only
+        # derive one when the file did not change during this attempt.
+        if tasks.note_mtime(cwd) <= note_before:
+            tasks.write_note(cwd, tasks.derive_note(cwd, backend.name, outcome.value, progress, path))
+        tasks.save(task, cwd)
+
+        if outcome is Outcome.FAILED and not keep_going:
+            after = tasks.git_status(cwd)
+            if tasks.tree_changed(before, after):
+                why = "outside git, so the tree cannot be checked" if after is None else "the working tree changed"
+                print(f"[agentshell] stopping: {backend.name} failed and {why}." + "\n"
+                      f"  - continue on the next backend: re-run with --keep-going" + "\n"
+                      f"  - or discard its changes yourself: git restore . ; git clean -fd" + "\n"
+                      f"  - handoff note: {tasks.note_path(cwd)}", file=sys.stderr)
+                tasks.close(task, cwd, "stopped")
+                return 1, None
+        # REFUSED, UNAVAILABLE, FAILED-without-changes, or --keep-going: next backend.
 
     print("[agentshell] every backend refused", file=sys.stderr)
+    if task:
+        tasks.close(task, cwd, "stopped")
     return 1, None

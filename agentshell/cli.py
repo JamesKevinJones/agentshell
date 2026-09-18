@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--via", choices=sorted(BY_NAME), help="pin one backend; no failover")
     p.add_argument("--cwd", type=Path, default=Path.cwd(), help="run the agent here")
     p.add_argument("--dry-run", action="store_true", help="show the choice and argv, run nothing")
+    p.add_argument("--keep-going", action="store_true",
+                   help="after a FAILED attempt that changed files, try the next backend anyway")
     p.add_argument("--config", type=Path, default=config.DEFAULT_PATH, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
 
@@ -88,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     prompt = with_piped_input(" ".join([args.prompt, *args.rest]), sys.stdin)
     code, parsed = run_task(prompt, cwd=args.cwd, chain=chain, via=args.via, dry_run=args.dry_run,
-                            timeout=cfg.timeout_seconds)
+                            keep_going=args.keep_going, timeout=cfg.timeout_seconds)
     if parsed is not None:
         print(parsed.text)
     return code

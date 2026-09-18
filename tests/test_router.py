@@ -2,6 +2,7 @@
 import dataclasses
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -88,18 +89,34 @@ class Failover(unittest.TestCase):
         root = Path(self.tmp.name)
         self.ledger_path = root / "ledger.json"
         self.failures = root / "failures"
+        # A throwaway git repo as the working tree, so task files and the
+        # tree-changed check never touch the real project.
+        self.repo = root / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        (self.repo / "a.txt").write_text("a")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"],
+                       cwd=self.repo, check=True)
         self.calls: list[str] = []
+        self.prompts: list[str] = []
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_chain(self, responses: dict[str, AttemptOutput], chain=(CLAUDE, CLAUDE2), via=None):
+    def run_chain(self, responses: dict[str, AttemptOutput], chain=(CLAUDE, CLAUDE2), via=None,
+                  keep_going=False, side_effect=None):
+        """`responses` maps backend name to what its attempt returns, or to a
+        callable(cwd) that may touch the tree and then return one."""
         def fake_runner(argv, cwd, **kw):
             self.calls.append(argv[0])
-            return responses[argv[0]]
-        with redirect_stderr(io.StringIO()):
+            self.prompts.append(max(argv, key=len))  # the prompt is the longest argv element
+            r = responses[argv[0]]
+            return r(cwd) if callable(r) else r
+        self.err = io.StringIO()
+        with redirect_stderr(self.err):
             return run_task(
-                "do the thing", cwd=Path.cwd(), chain=chain, via=via,
+                "do the thing", cwd=self.repo, chain=chain, via=via, keep_going=keep_going,
                 runner=fake_runner, now=lambda: NOW,
                 ledger_path=self.ledger_path, failure_dir=self.failures,
             )
@@ -137,6 +154,71 @@ class Failover(unittest.TestCase):
         code, parsed = self.run_chain({"claude": limited(), "claude2": limited()})
         self.assertEqual(code, 1)
         self.assertEqual(self.calls, ["claude", "claude2"])
+
+    # --- task and handoff ---
+
+    def test_ok_archives_the_task_and_prompt_carries_the_handoff_instruction(self):
+        self.run_chain({"claude": ok(), "claude2": ok()})
+        archive = list((self.repo / ".agentshell" / "tasks").glob("*.json"))
+        self.assertEqual(len(archive), 1)
+        rec = json.loads(archive[0].read_text())
+        self.assertEqual(rec["status"], "done")
+        self.assertEqual([a["backend"] for a in rec["attempts"]], ["claude"])
+        self.assertFalse((self.repo / ".agentshell" / "current.json").exists())
+        self.assertIn("HANDOFF.md", self.prompts[0])
+        self.assertIn(".agentshell/", (self.repo / ".git" / "info" / "exclude").read_text())
+
+    def test_refusal_derives_a_note_that_the_next_attempt_receives(self):
+        self.run_chain({"claude": limited(), "claude2": ok()})
+        self.assertNotIn("previous attempt", self.prompts[0].lower())
+        self.assertIn("Previous attempt: `claude` ended with **refused**", self.prompts[1])
+        self.assertIn("continue from it, do not start over", self.prompts[1])
+
+    def test_agent_written_note_is_kept_not_overwritten(self):
+        def claude_writes_note_then_fails(cwd):
+            (cwd / ".agentshell" / "HANDOFF.md").write_text("# Mine\nHalf done: added a.txt header")
+            return AttemptOutput(2, "", "boom", 1.0)
+        self.run_chain({"claude": claude_writes_note_then_fails, "claude2": ok()})
+        self.assertIn("Half done: added a.txt header", self.prompts[1])
+        self.assertNotIn("derived by agentshell", self.prompts[1])
+
+    # --- stop on FAILED ---
+
+    def test_failed_without_changes_falls_through(self):
+        code, parsed = self.run_chain({"claude": AttemptOutput(2, "", "boom", 1.0), "claude2": ok("from claude2")})
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls, ["claude", "claude2"])
+
+    def test_failed_after_changing_the_tree_stops(self):
+        def claude_edits_then_fails(cwd):
+            (cwd / "new.txt").write_text("half")
+            return AttemptOutput(2, "", "boom", 1.0)
+        code, parsed = self.run_chain({"claude": claude_edits_then_fails, "claude2": ok()})
+        self.assertEqual(code, 1)
+        self.assertEqual(self.calls, ["claude"])
+        self.assertIn("--keep-going", self.err.getvalue())
+        rec = json.loads(next((self.repo / ".agentshell" / "tasks").glob("*.json")).read_text())
+        self.assertEqual(rec["status"], "stopped")
+        self.assertIn("new.txt", rec["note"])
+
+    def test_keep_going_overrides_the_stop(self):
+        def claude_edits_then_fails(cwd):
+            (cwd / "new.txt").write_text("half")
+            return AttemptOutput(2, "", "boom", 1.0)
+        code, parsed = self.run_chain({"claude": claude_edits_then_fails, "claude2": ok("from claude2")},
+                                      keep_going=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls, ["claude", "claude2"])
+
+    def test_readonly_never_opens_a_task(self):
+        def fake_runner(argv, cwd, **kw):
+            return AttemptOutput(2, "", "boom", 1.0) if argv[0] == "claude" else ok("answer")
+        with redirect_stderr(io.StringIO()):
+            code, parsed = run_task("explain x", cwd=self.repo, chain=(CLAUDE, CLAUDE2), readonly=True,
+                                    runner=fake_runner, now=lambda: NOW,
+                                    ledger_path=self.ledger_path, failure_dir=self.failures)
+        self.assertEqual(parsed.text, "answer")
+        self.assertFalse((self.repo / ".agentshell").exists())
 
 
 if __name__ == "__main__":
