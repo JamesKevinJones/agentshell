@@ -86,7 +86,9 @@ class Ledger:
         you decide what "the last 5 hours" means at the boundaries, because
         that boundary is what tests/test_ledger.py pins.
         """
-        raise NotImplementedError("exercise 2 - see the docstring above")
+        return sum(e.tokens
+                   for e in self.events
+                   if e.backend == backend and now - e.at < WINDOW_SECONDS)
 
     def cooling_down(self, backend: str, now: float) -> bool:
         return now < self.state(backend).cooldown_until

@@ -1,6 +1,9 @@
 """Spawn one backend CLI and capture what it did. Nothing else."""
 from __future__ import annotations
 
+import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,7 +17,7 @@ class RunOutput:
 
 
 def run_backend(argv: list[str], cwd: Path, timeout: int = 900) -> RunOutput:
-    """EXERCISE 1 - run `argv` in `cwd`, return everything it produced.
+    """Run `argv` in `cwd`, return everything it produced.
 
     Contract:
       - stdout and stderr are captured separately, decoded as UTF-8, and
@@ -28,19 +31,27 @@ def run_backend(argv: list[str], cwd: Path, timeout: int = 900) -> RunOutput:
         exception here: return exit_code=127 and put the error text in
         stderr. router.py treats that as "this backend is unavailable" and
         moves on, which is exactly what should happen.
-
-    Hints, in order - stop reading at the first one that unblocks you:
-      1. `subprocess.run` with `capture_output=True, text=True,
-         encoding="utf-8"` does most of this in one call.
-      2. It raises `subprocess.TimeoutExpired` (which carries .stdout/.stderr
-         as bytes-or-None) and `FileNotFoundError` - two `except` clauses.
-      3. On Windows, `codex` / `agy` / `opencode` are .cmd or .exe shims.
-         `subprocess.run` finds .exe on its own; for a .cmd you may need
-         `shutil.which(argv[0])` to resolve the real path first.
-
-    Stretch (not required for the tests): stream stdout to the terminal line
-    by line while still collecting it, so a 5-minute run is not silent. That
-    means `subprocess.Popen` + iterating `proc.stdout`. Do the simple
-    version first.
     """
-    raise NotImplementedError("exercise 1 - see the docstring above")
+    # On Windows the npm-installed CLIs (codex, opencode) are .cmd shims that
+    # subprocess cannot find by bare name; resolve through PATH first.
+    exe = shutil.which(argv[0])
+    if exe is None:
+        return RunOutput(127, "", f"agentshell: {argv[0]} not found on PATH", 0.0)
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(
+            [exe, *argv[1:]], cwd=cwd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        seconds = time.monotonic() - start
+        stdout = _as_text(e.stdout)
+        stderr = _as_text(e.stderr) + "\nagentshell: timeout"
+        return RunOutput(-1, stdout, stderr.strip(), seconds)
+    return RunOutput(proc.returncode, proc.stdout, proc.stderr, time.monotonic() - start)
+
+
+def _as_text(data: bytes | str | None) -> str:
+    if data is None:
+        return ""
+    return data if isinstance(data, str) else data.decode("utf-8", errors="replace")

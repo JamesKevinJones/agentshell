@@ -33,6 +33,7 @@ class HistoryTests(unittest.TestCase):
         h = History(Path(":memory:"))
         h.record("ls", T, 1, 0, "/")
         self.assertIsNone(h.last_failure())
+        h.close()
 
     def test_context_reads_oldest_first_with_status(self):
         ctx = self.h.as_context(limit=2)
@@ -43,7 +44,9 @@ class HistoryTests(unittest.TestCase):
         ])
 
     def test_context_empty_when_no_history(self):
-        self.assertEqual(History(Path(":memory:")).as_context(), "")
+        h = History(Path(":memory:"))
+        self.assertEqual(h.as_context(), "")
+        h.close()
 
 
 if __name__ == "__main__":

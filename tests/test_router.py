@@ -68,7 +68,7 @@ class Parsers(unittest.TestCase):
 
 
 class Failover(unittest.TestCase):
-    """These need exercise 2 (window_usage) to be green."""
+    """Both backends here use the claude-style parser, so one fake `ok()` shape serves both."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -80,7 +80,7 @@ class Failover(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, CODEX), via=None):
+    def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, AGY), via=None):
         def fake_runner(argv, cwd):
             self.calls.append(argv[0])
             return responses[argv[0]]
@@ -92,17 +92,17 @@ class Failover(unittest.TestCase):
             )
 
     def test_first_backend_ok_stops_the_chain(self):
-        code, parsed = self.run_chain({"claude": ok("from claude"), "codex": ok("from codex")})
+        code, parsed = self.run_chain({"claude": ok("from claude"), "agy": ok("from agy")})
         self.assertEqual(code, 0)
         self.assertEqual(parsed.text, "from claude")
         self.assertEqual(self.calls, ["claude"])
         self.assertEqual(Ledger.load(self.ledger_path).window_usage("claude", NOW), 120)
 
     def test_rate_limited_backend_falls_through_and_cools_down(self):
-        code, parsed = self.run_chain({"claude": limited(), "codex": ok("from codex")})
+        code, parsed = self.run_chain({"claude": limited(), "agy": ok("from agy")})
         self.assertEqual(code, 0)
-        self.assertEqual(parsed.text, "from codex")
-        self.assertEqual(self.calls, ["claude", "codex"])
+        self.assertEqual(parsed.text, "from agy")
+        self.assertEqual(self.calls, ["claude", "agy"])
         led = Ledger.load(self.ledger_path)
         self.assertTrue(led.cooling_down("claude", NOW + 1))
         self.assertEqual(len(list(self.failures.iterdir())), 1)
@@ -111,19 +111,19 @@ class Failover(unittest.TestCase):
         led = Ledger()
         led.mark_rate_limited("claude", NOW - 10)
         led.save(self.ledger_path)
-        self.run_chain({"claude": ok(), "codex": ok("from codex")})
-        self.assertEqual(self.calls, ["codex"])
+        self.run_chain({"claude": ok(), "agy": ok("from agy")})
+        self.assertEqual(self.calls, ["agy"])
 
     def test_via_pins_and_does_not_fail_over(self):
-        code, parsed = self.run_chain({"claude": ok(), "codex": limited()}, via="codex")
+        code, parsed = self.run_chain({"claude": ok(), "agy": limited()}, via="agy")
         self.assertEqual(code, 1)
         self.assertIsNone(parsed)
-        self.assertEqual(self.calls, ["codex"])
+        self.assertEqual(self.calls, ["agy"])
 
     def test_everything_refused_exits_one(self):
-        code, parsed = self.run_chain({"claude": limited(), "codex": limited()})
+        code, parsed = self.run_chain({"claude": limited(), "agy": limited()})
         self.assertEqual(code, 1)
-        self.assertEqual(self.calls, ["claude", "codex"])
+        self.assertEqual(self.calls, ["claude", "agy"])
 
 
 if __name__ == "__main__":
