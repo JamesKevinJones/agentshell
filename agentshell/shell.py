@@ -31,7 +31,7 @@ POWERSHELL = shutil.which("pwsh") or "powershell"
 
 @dataclass(frozen=True)
 class Line:
-    kind: str   # exit | cd | ai | explain | fix | exec | empty
+    kind: str   # exit | cd | ai | task | explain | fix | exec | empty
     arg: str
 
 
@@ -47,6 +47,8 @@ def parse_line(raw: str) -> Line:
         return Line("ai", line[3:].strip())
     if line == "fix":
         return Line("fix", "")
+    if line.startswith("task "):
+        return Line("task", line[5:].strip())
     if line.startswith("explain "):
         return Line("explain", line[8:].strip())
     # cd has to be a builtin: a child PowerShell changing *its* directory
@@ -54,6 +56,38 @@ def parse_line(raw: str) -> Line:
     if line == "cd" or line.startswith("cd "):
         return Line("cd", line[2:].strip().strip('"'))
     return Line("exec", line)
+
+
+# --- destructive proposals ------------------------------------------------------
+#
+# Flagged, never blocked (DECISIONS 2026-09-18): a match colours the buffer red
+# and prints one warning line. Plain `git push` is on the list because it is
+# the moment a mistake leaves the machine; `git commit` is not.
+
+DESTRUCTIVE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("Remove-Item", r"\bRemove-Item\b|\bri\b|\brm\b|\brmdir\b|\bdel\b|\berase\b"),
+    ("git reset --hard", r"\bgit\s+reset\s+--hard\b"),
+    ("git push", r"\bgit\s+push\b"),
+    ("git clean", r"\bgit\s+clean\b"),
+    ("git restore/checkout .", r"\bgit\s+(restore|checkout)\s+(\.|--\s)"),
+    ("git branch -D", r"\bgit\s+branch\s+-D\b"),
+    ("Format-*", r"\bFormat-(Volume|Disk)\b"),
+    ("Stop-Process/taskkill", r"\bStop-Process\b|\btaskkill\b|\bkill\b"),
+    ("overwrite redirect", r"(?<![-|>0-9])>(?![>=])"),
+    ("Out-File/Set-Content", r"\bOut-File\b|\bSet-Content\b"),
+)
+
+
+def destructive_match(cmd: str, extra: tuple[str, ...] = ()) -> str | None:
+    """The human name of the first destructive pattern `cmd` matches, or None.
+    `extra` are additional regexes from config, named by themselves."""
+    for name, pattern in DESTRUCTIVE_PATTERNS:
+        if re.search(pattern, cmd, re.IGNORECASE):
+            return name
+    for pattern in extra:
+        if re.search(pattern, cmd, re.IGNORECASE):
+            return pattern
+    return None
 
 
 # --- running a plain command through PowerShell -----------------------------

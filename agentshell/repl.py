@@ -22,14 +22,15 @@ from prompt_toolkit.styles import Style
 from .config import Config
 from .history import History
 from .router import run_task
-from .shell import (CommandResult, explain_prompt, extract_command, fix_prompt, parse_line,
-                    propose_prompt, run_command)
+from .shell import (CommandResult, destructive_match, explain_prompt, extract_command, fix_prompt,
+                    parse_line, propose_prompt, run_command)
 
 STYLE = Style.from_dict({
     "ok": "ansigreen",
     "fail": "ansired bold",
     "cwd": "ansicyan",
     "ai": "ansimagenta",
+    "danger": "ansired",
     "banner": "ansibrightblack",
 })
 
@@ -55,12 +56,23 @@ class SqliteHistory(PTHistory):
 
 
 class ModeLexer(Lexer):
-    """Colour a line that will go to the agent, so the mode is visible before Enter."""
+    """Colour a line by what Enter will do with it: magenta goes to the agent,
+    red would run something on the destructive list."""
+
+    def __init__(self, extra_patterns: tuple[str, ...] = ()):
+        self.extra = extra_patterns
 
     def lex_document(self, document):
         def get_line(i: int):
             line = document.lines[i]
-            return [("class:ai" if parse_line(line).kind in ("ai", "explain", "fix") else "", line)]
+            parsed = parse_line(line)
+            if parsed.kind in ("ai", "explain", "fix", "task"):
+                style = "class:ai"
+            elif parsed.kind == "exec" and destructive_match(line, self.extra):
+                style = "class:danger"
+            else:
+                style = ""
+            return [(style, line)]
         return get_line
 
 
@@ -80,17 +92,25 @@ def ask(prompt: str, cfg: Config) -> str | None:
     return parsed.text
 
 
+def warn_if_destructive(proposal: str, cfg: Config) -> None:
+    """One line above the buffer. Flagged, never blocked."""
+    name = destructive_match(proposal, cfg.destructive_patterns)
+    if name:
+        print(f"[agentshell] proposal matches destructive pattern '{name}' - review before Enter",
+              file=sys.stderr)
+
+
 def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
     cfg = cfg or Config()
     hist = History(history_path) if history_path else History()
     session: PromptSession = PromptSession(
         history=SqliteHistory(hist),
         auto_suggest=AutoSuggestFromHistory(),
-        lexer=ModeLexer(),
+        lexer=ModeLexer(cfg.destructive_patterns),
         style=STYLE,
     )
-    print("agentshell - plain lines run in PowerShell; '? <task>' asks the agent for a command;"
-          " 'fix' after a failure; 'explain <cmd>'; 'exit'.")
+    print("agentshell - plain lines run in PowerShell; '? <goal>' proposes a command;"
+          " 'task <goal>' lets the agent do it; 'fix' after a failure; 'explain <cmd>'; 'exit'.")
 
     last_exit = 0
     last_failure: tuple[str, CommandResult] | None = None
@@ -127,6 +147,19 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
             if answer:
                 print(answer)
                 pending = extract_command(answer) or ""
+                if pending:
+                    warn_if_destructive(pending, cfg)
+            continue
+
+        if line.kind == "task":
+            started = time.time()
+            code, parsed = run_task(line.arg, cwd=Path.cwd(), chain=cfg.backends(),
+                                    timeout=cfg.timeout_seconds)
+            if parsed is not None:
+                print(parsed.text)
+            hist.record(raw.strip(), started, int((time.time() - started) * 1000), code, str(Path.cwd()))
+            session.history.append_string(raw.strip())
+            last_exit = code
             continue
 
         if line.kind == "explain":
@@ -144,6 +177,8 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
             if answer:
                 print(answer)
                 pending = extract_command(answer) or ""
+                if pending:
+                    warn_if_destructive(pending, cfg)
             continue
 
         # Plain command.
@@ -165,6 +200,8 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
                 if answer:
                     print(answer)
                     pending = extract_command(answer) or ""
+                    if pending:
+                        warn_if_destructive(pending, cfg)
 
     hist.close()
     return 0
