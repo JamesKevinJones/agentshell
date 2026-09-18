@@ -39,9 +39,9 @@ agentshell --dry-run "say hello"
 agentshell repl
 ```
 
-Then check: `cmd /c exit 4` turns the prompt red with `[!4]` and offers
+Then check: `exit 4` turns the prompt red with `[!4]` and offers
 `Diagnose with agent? [y/N]`; answer `n`. `cd ..` changes the prompt path.
-Up-arrow recalls `cmd /c exit 4` from SQLite. `exit` leaves.
+`/help` prints the reference, `/models` the backend table. Up-arrow recalls the last command from SQLite. `exit` leaves.
 
 ## Windows Terminal profile (the translucent look)
 

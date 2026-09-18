@@ -9,14 +9,14 @@ falls back to `gpt-oss:20b` on your own GPU (via Ollama) when every paid
 backend is exhausted. It is also an interactive shell: type a command and it
 runs; type `?` and an agent proposes one; type `task` and an agent does it.
 
-```
+````
 [ok] ~\repo > ? find the five largest files under src
 ```powershell
 Get-ChildItem src -Recurse -File | Sort-Object Length -Descending | Select-Object -First 5
 ```
 Lists the five biggest files under src.
 [ok] ~\repo > Get-ChildItem src -Recurse -File | Sort-Object Length -Descending | Select-Object -First 5   <- in your buffer, Enter to run
-```
+````
 
 Windows-first (PowerShell is the exec shell). The routing layer is
 platform-neutral; CI runs the suite on Ubuntu too.
