@@ -55,13 +55,13 @@ def _status(chain: tuple[Backend, ...]) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agentshell",
                                 description="Run one prompt through a failover chain of agent CLIs.")
-    p.add_argument("prompt", nargs="?", help="the task, or one of: status, repl, config [init]")
+    p.add_argument("prompt", nargs="?", help="the task, or one of: status, repl, continue, config [init]")
     p.add_argument("rest", nargs="*", help=argparse.SUPPRESS)  # unquoted prompts, config subcommands
     p.add_argument("--via", choices=sorted(BY_NAME), help="pin one backend; no failover")
     p.add_argument("--cwd", type=Path, default=Path.cwd(), help="run the agent here")
     p.add_argument("--dry-run", action="store_true", help="show the choice and argv, run nothing")
     p.add_argument("--keep-going", action="store_true",
-                   help="after a FAILED attempt that changed files, try the next backend anyway")
+                   help="do not stop after a FAILED attempt that changed files")
     p.add_argument("--config", type=Path, default=config.DEFAULT_PATH, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
 
@@ -88,9 +88,19 @@ def main(argv: list[str] | None = None) -> int:
         from .repl import main as repl_main
         return repl_main(cfg=cfg)
 
-    prompt = with_piped_input(" ".join([args.prompt, *args.rest]), sys.stdin)
-    code, parsed = run_task(prompt, cwd=args.cwd, chain=chain, via=args.via, dry_run=args.dry_run,
-                            keep_going=args.keep_going, timeout=cfg.timeout_seconds)
+    if args.prompt == "continue":
+        from . import task as tasks
+        existing = tasks.reopen_last_stopped(args.cwd)
+        if existing is None:
+            print("[agentshell] nothing to continue: no stopped task in .agentshell/tasks", file=sys.stderr)
+            return 1
+        print(f"[agentshell] continuing task {existing.id}: {existing.prompt[:70]}", file=sys.stderr)
+        code, parsed = run_task(existing.prompt, cwd=args.cwd, chain=chain, via=args.via, keep_going=True,
+                                existing=existing, timeout=cfg.timeout_seconds)
+    else:
+        prompt = with_piped_input(" ".join([args.prompt, *args.rest]), sys.stdin)
+        code, parsed = run_task(prompt, cwd=args.cwd, chain=chain, via=args.via, dry_run=args.dry_run,
+                                keep_going=args.keep_going, timeout=cfg.timeout_seconds)
     if parsed is not None:
         print(parsed.text)
     return code

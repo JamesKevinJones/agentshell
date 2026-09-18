@@ -48,6 +48,11 @@ class Backend:
     # or None to stay quiet. Fed each JSON object from stdout as it arrives.
     # The final answer is never shown here; that is parse()'s job at the end.
     progress: Callable[[dict], str | None] = lambda event: None
+    # session_id(stdout) -> the CLI's own id for the conversation it just had,
+    # so a later attempt on the same task can resume it instead of starting
+    # cold. resume_argv(session_id, prompt, readonly) builds that command.
+    session_id: Callable[[str], str | None] = lambda stdout: None
+    resume_argv: Callable[[str, str, bool], list[str]] | None = None
 
     def looks_refused(self, stdout: str, stderr: str) -> bool:
         blob = stdout + "\n" + stderr
@@ -156,6 +161,33 @@ def parse_opencode(stdout: str) -> Parsed:
     return Parsed(text="\n".join(texts) or stdout, usage=Usage())
 
 
+# --- session ids: what each CLI calls the conversation it just had ------------
+
+def _first_key(stdout: str, *keys: str) -> str | None:
+    for ev in _json_lines(stdout):
+        for k in keys:
+            v = ev.get(k)
+            if isinstance(v, str) and v:
+                return v
+    return None
+
+
+def session_claude(stdout: str) -> str | None:
+    return _first_key(stdout, "session_id")          # on system.init and result
+
+
+def session_agy(stdout: str) -> str | None:
+    return _first_key(stdout, "conversation_id")
+
+
+def session_codex(stdout: str) -> str | None:
+    return _first_key(stdout, "thread_id")           # on the thread.started event
+
+
+def session_opencode(stdout: str) -> str | None:
+    return _first_key(stdout, "sessionID", "session_id")   # shape unverified
+
+
 # --- progress: one line per interesting event, while the run is in flight ---
 
 def _short(value: object, width: int = 90) -> str:
@@ -226,9 +258,19 @@ def _claude_argv(prompt: str, readonly: bool) -> list[str]:
             "--permission-mode", mode]
 
 
+def _claude_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
+    return _claude_argv(prompt, readonly) + ["--resume", sid]
+
+
 def _codex_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
     sandbox = "read-only" if readonly else "workspace-write"
     return ["codex", "exec", "--json", "-s", sandbox, *extra, prompt]
+
+
+def _codex_resume(sid: str, prompt: str, readonly: bool, *extra: str) -> list[str]:
+    # exec's own flags go before the resume subcommand; resume takes id then prompt.
+    sandbox = "read-only" if readonly else "workspace-write"
+    return ["codex", "exec", "--json", "-s", sandbox, *extra, "resume", sid, prompt]
 
 
 def _agy_argv(prompt: str, readonly: bool) -> list[str]:
@@ -236,9 +278,17 @@ def _agy_argv(prompt: str, readonly: bool) -> list[str]:
     return ["agy", "-p", prompt, "--output-format", "json", "--mode", mode]
 
 
-def _opencode_argv(prompt: str, readonly: bool) -> list[str]:
+def _agy_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
+    return _agy_argv(prompt, readonly) + ["--conversation", sid]
+
+
+def _opencode_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
     agent = ["--agent", "plan"] if readonly else []
-    return ["opencode", "run", "--format", "json", "-m", f"ollama/{LOCAL_MODEL}", *agent, prompt]
+    return ["opencode", "run", "--format", "json", "-m", f"ollama/{LOCAL_MODEL}", *agent, *extra, prompt]
+
+
+def _opencode_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
+    return _opencode_argv(prompt, readonly, "-s", sid)
 
 
 CLAUDE = Backend(
@@ -247,6 +297,8 @@ CLAUDE = Backend(
     parse=parse_claude_style,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"limit reached", r"\b429\b"),
     progress=progress_claude,
+    session_id=session_claude,
+    resume_argv=_claude_resume,
 )
 
 CODEX = Backend(
@@ -255,6 +307,8 @@ CODEX = Backend(
     parse=parse_codex,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"quota", r"\b429\b"),
     progress=progress_codex,
+    session_id=session_codex,
+    resume_argv=_codex_resume,
 )
 
 AGY = Backend(
@@ -262,6 +316,8 @@ AGY = Backend(
     argv=_agy_argv,
     parse=parse_agy,
     rate_limit_patterns=(r"quota", r"RESOURCE_EXHAUSTED", r"rate.?limit", r"\b429\b"),
+    session_id=session_agy,
+    resume_argv=_agy_resume,
 )
 
 OPENCODE_LOCAL = Backend(
@@ -271,6 +327,8 @@ OPENCODE_LOCAL = Backend(
     rate_limit_patterns=(),
     metered=False,
     progress=progress_opencode,
+    session_id=session_opencode,
+    resume_argv=_opencode_resume,
 )
 
 # Same local model through the Codex CLI instead of OpenCode. Needs no
@@ -285,6 +343,9 @@ CODEX_OSS = Backend(
     rate_limit_patterns=(),
     metered=False,
     progress=progress_codex,
+    session_id=session_codex,
+    resume_argv=lambda sid, prompt, readonly: _codex_resume(
+        sid, prompt, readonly, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
 )
 
 DEFAULT_CHAIN: tuple[Backend, ...] = (CLAUDE, CODEX, AGY, OPENCODE_LOCAL, CODEX_OSS)

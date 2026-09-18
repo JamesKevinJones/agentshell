@@ -108,6 +108,26 @@ def close(task: Task, cwd: Path, status: str) -> Path:
     return path
 
 
+def reopen_last_stopped(cwd: Path) -> Task | None:
+    """`agentshell continue`: the newest stopped task comes back as the open
+    task, with its note restored, so the chain can be walked again."""
+    archive = cwd / DIR_NAME / "tasks"
+    if not archive.is_dir():
+        return None
+    for path in sorted(archive.glob("*.json"), reverse=True):
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("status") != "stopped":
+            continue
+        raw["attempts"] = [AttemptRecord(**a) for a in raw.get("attempts", [])]
+        task = Task(**raw)
+        task.status = "open"
+        if task.note:
+            write_note(cwd, task.note)
+        save(task, cwd)
+        return task
+    return None
+
+
 # --- the note ------------------------------------------------------------------
 
 def note_path(cwd: Path) -> Path:

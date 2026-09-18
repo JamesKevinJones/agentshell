@@ -98,6 +98,7 @@ def run_task(
     dry_run: bool = False,
     readonly: bool = False,
     keep_going: bool = False,
+    existing: tasks.Task | None = None,
     timeout: int = 900,
     runner: Callable[..., AttemptOutput] = attempt,
     now: Callable[[], float] = time.time,
@@ -116,7 +117,10 @@ def run_task(
     substitute fakes and a temp directory.
     """
     ledger = Ledger.load(ledger_path)
-    task = None if (readonly or dry_run) else tasks.open_task(cwd, prompt, now())
+    if existing is not None:
+        task, prompt = existing, existing.prompt
+    else:
+        task = None if (readonly or dry_run) else tasks.open_task(cwd, prompt, now())
 
     for backend, reason in candidates(chain, ledger, now(), via):
         if reason:
@@ -125,12 +129,20 @@ def run_task(
 
         note = tasks.read_note(cwd) if task else None
         full_prompt = tasks.build_prompt(prompt, note) if task else prompt
-        argv = backend.argv(full_prompt, readonly)
+        # Same backend, same task, second time: pick its own conversation back
+        # up. Its memory beats any note; the note still rides along.
+        sid = task.session_for(backend.name) if task else None
+        if sid and backend.resume_argv is not None:
+            argv = backend.resume_argv(sid, full_prompt, readonly)
+            how = f" (resuming {sid[:8]})"
+        else:
+            argv = backend.argv(full_prompt, readonly)
+            how = " (with handoff note)" if note else ""
         if dry_run:
             print(f"[agentshell] would run {backend.name}: {argv}", file=sys.stderr)
             return 0, None
 
-        print(f"[agentshell] -> {backend.name}" + (" (with handoff note)" if note else ""), file=sys.stderr)
+        print(f"[agentshell] -> {backend.name}{how}", file=sys.stderr)
         before = tasks.git_status(cwd) if task else None
         note_before = tasks.note_mtime(cwd) if task else 0.0
         progress: list[str] = []
@@ -144,7 +156,8 @@ def run_task(
                 ledger.record(backend.name, parsed.usage.total, t)
                 ledger.save(ledger_path, now=t)
             if task:
-                task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds))
+                task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds,
+                                                         session_id=backend.session_id(out.stdout)))
                 tasks.close(task, cwd, "done")
             return 0, parsed
 
@@ -157,7 +170,8 @@ def run_task(
         if task is None:
             continue  # read-only: nothing to hand off, nothing to protect
 
-        task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds, dump=str(path)))
+        task.attempts.append(tasks.AttemptRecord(backend.name, outcome.value, t, out.seconds,
+                                                 session_id=backend.session_id(out.stdout), dump=str(path)))
         # The agent may have written its own note before being cut off; only
         # derive one when the file did not change during this attempt.
         if tasks.note_mtime(cwd) <= note_before:
