@@ -8,6 +8,29 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-09-18 — Progress streams to stderr; stdout is only the final answer
+
+**Context.** A multi-minute agent run was silent until it finished.
+
+**Decision.** `run_backend` reads the child line by line and hands each line
+to an `on_line` callback. Each `Backend` has `progress(event)`, which turns
+one JSON event into a one-line summary (`> Bash: git status`, a sentence of
+assistant text) or nothing. The router prints those to **stderr** as they
+arrive. Claude runs with `--output-format stream-json --verbose`; codex and
+opencode already emit line events; agy stays on plain `json` (no progress)
+until its stream shape is seen live.
+
+**Why not the alternative.** Printing progress to stdout would make
+`agentshell "..." | Out-File` capture the play-by-play along with the
+answer. stderr keeps the one-shot CLI composable.
+
+**Consequences.** stderr is drained on a thread (two pipes read in turn
+deadlock at 64 KB); the timeout is a `threading.Timer` that kills the child,
+because the stdout loop blocks in readline. stdin is `DEVNULL`: `claude -p`
+reads a non-tty stdin as extra prompt and would hang.
+
+---
+
 ## 2026-09-18 — Proposals go to backends in read-only mode
 
 **Context.** In the REPL, `? stage all modified js files` asks an *agent* CLI

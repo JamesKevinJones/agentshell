@@ -28,7 +28,7 @@ summaries, task files) is a later decision — see `docs/DECISIONS.md`.
   to `repl.py`** (`pip install -r requirements.txt`)
 - Tests: `unittest` (stdlib), run with `python -m unittest`
 - Backends wrapped (all must already be on PATH):
-  - `claude` — `claude -p --output-format json`
+  - `claude` — `claude -p --output-format stream-json --verbose` (progress lines as it runs)
   - `agy` — `agy -p --output-format json` (flag surface copies Claude's)
   - `codex` — `codex exec --json`
   - `opencode` — `opencode run --format json -m ollama/<model>` (local fallback)
@@ -44,8 +44,8 @@ summaries, task files) is a later decision — see `docs/DECISIONS.md`.
 agentshell/
   __main__.py   # python -m agentshell "prompt"
   cli.py        # argparse only; no logic
-  backends.py   # one Backend per CLI: argv builder, result parser, rate-limit patterns
-  runner.py     # run_backend(): subprocess + capture, timeout, missing-exe -> 127
+  backends.py   # one Backend per CLI: argv builder, result parser, progress renderer, rate-limit patterns
+  runner.py     # run_backend(): Popen, on_line streaming, timer timeout, missing-exe -> 127
   ledger.py     # rolling 5-hour usage window per backend, learned budgets, cooldowns
   router.py     # choose next backend, run, classify, record, retry
   history.py    # SQLite command history (Atuin fields) + as_context() for the agent

@@ -44,6 +44,10 @@ class Backend:
     rate_limit_patterns: tuple[str, ...]
     # False means "no quota": never skipped by the ledger, never budgeted.
     metered: bool = True
+    # progress(event) -> one short line to show while the run is in flight,
+    # or None to stay quiet. Fed each JSON object from stdout as it arrives.
+    # The final answer is never shown here; that is parse()'s job at the end.
+    progress: Callable[[dict], str | None] = lambda event: None
 
     def looks_rate_limited(self, stdout: str, stderr: str) -> bool:
         blob = stdout + "\n" + stderr
@@ -152,6 +156,58 @@ def parse_opencode(stdout: str) -> Parsed:
     return Parsed(text="\n".join(texts) or stdout, usage=Usage())
 
 
+# --- progress: one line per interesting event, while the run is in flight ---
+
+def _short(value: object, width: int = 90) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def _first_string(d: dict) -> str:
+    """The most useful thing in a tool's input: its first string argument."""
+    for v in d.values():
+        if isinstance(v, str) and v.strip():
+            return v
+    return ""
+
+
+def progress_claude(ev: dict) -> str | None:
+    """claude `stream-json --verbose`: assistant messages carry content blocks,
+    each either text or a tool_use; tool results come back as user messages."""
+    if ev.get("type") != "assistant":
+        return None
+    lines = []
+    for block in ev.get("message", {}).get("content", []):
+        kind = block.get("type")
+        if kind == "text" and block.get("text", "").strip():
+            lines.append(_short(block["text"]))
+        elif kind == "tool_use":
+            lines.append(f"> {block.get('name', 'tool')}: {_short(_first_string(block.get('input', {})), 70)}")
+    return "\n".join(lines) or None
+
+
+def progress_codex(ev: dict) -> str | None:
+    """codex `--json`: item.started/completed events with a typed item."""
+    if ev.get("type") not in ("item.started", "item.completed"):
+        return None
+    item = ev.get("item", {})
+    kind = item.get("type")
+    if kind == "command_execution" and ev["type"] == "item.started":
+        return f"> $ {_short(item.get('command', ''), 80)}"
+    if kind == "agent_message" and ev["type"] == "item.completed":
+        return _short(item.get("text", ""))
+    if kind == "file_change" and ev["type"] == "item.completed":
+        paths = [c.get("path", "") for c in item.get("changes", [])]
+        return f"> edit: {_short(', '.join(paths), 80)}"
+    return None
+
+
+def progress_opencode(ev: dict) -> str | None:
+    """opencode `--format json`: shape unverified; show any text field."""
+    text = ev.get("text")
+    return _short(text) if isinstance(text, str) and text.strip() else None
+
+
 # --- the chain -------------------------------------------------------------
 #
 # Permission flags: a headless coding run has to be allowed to edit files, or
@@ -164,7 +220,10 @@ LOCAL_MODEL = "gpt-oss:20b"
 
 def _claude_argv(prompt: str, readonly: bool) -> list[str]:
     mode = "plan" if readonly else "acceptEdits"
-    return ["claude", "-p", prompt, "--output-format", "json", "--permission-mode", mode]
+    # stream-json needs --verbose in print mode; the last line is the same
+    # {"type": "result"} object that plain json mode returns.
+    return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", mode]
 
 
 def _codex_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
@@ -187,6 +246,7 @@ CLAUDE = Backend(
     argv=_claude_argv,
     parse=parse_claude_style,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"limit reached", r"\b429\b"),
+    progress=progress_claude,
 )
 
 CODEX = Backend(
@@ -194,6 +254,7 @@ CODEX = Backend(
     argv=_codex_argv,
     parse=parse_codex,
     rate_limit_patterns=(r"rate.?limit", r"usage limit", r"quota", r"\b429\b"),
+    progress=progress_codex,
 )
 
 AGY = Backend(
@@ -209,6 +270,7 @@ OPENCODE_LOCAL = Backend(
     parse=parse_opencode,
     rate_limit_patterns=(),
     metered=False,
+    progress=progress_opencode,
 )
 
 # Same local model through the Codex CLI instead of OpenCode. Needs no
@@ -222,6 +284,7 @@ CODEX_OSS = Backend(
     parse=parse_codex,
     rate_limit_patterns=(),
     metered=False,
+    progress=progress_codex,
 )
 
 DEFAULT_CHAIN: tuple[Backend, ...] = (CLAUDE, CODEX, AGY, OPENCODE_LOCAL, CODEX_OSS)

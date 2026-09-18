@@ -94,7 +94,7 @@ class Failover(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_chain(self, responses: dict[str, RunOutput], chain=(CLAUDE, CLAUDE2), via=None):
-        def fake_runner(argv, cwd):
+        def fake_runner(argv, cwd, **kw):
             self.calls.append(argv[0])
             return responses[argv[0]]
         with redirect_stderr(io.StringIO()):

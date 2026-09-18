@@ -56,6 +56,27 @@ def candidates(chain: tuple[Backend, ...], ledger: Ledger, now: float,
     return out
 
 
+def progress_printer(backend: Backend, stream=None) -> Callable[[str], None]:
+    """An on_line callback for run_backend: parse the line as one JSON event,
+    ask the backend for a human summary, print it to stderr as it happens.
+
+    stderr on purpose - stdout stays the final answer, so
+    `agentshell "..." | Out-File` gets the result and not the play-by-play.
+    """
+    def on_line(line: str) -> None:
+        line = line.strip()
+        if not line.startswith("{"):
+            return
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        text = backend.progress(event)
+        if text:
+            print(f"  {text}", file=stream or sys.stderr, flush=True)
+    return on_line
+
+
 def dump_failure(backend: Backend, out: RunOutput, now: float, where: Path = FAILURE_DIR) -> Path:
     where.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
@@ -94,7 +115,7 @@ def run_with_failover(
             return 0, None
 
         print(f"[agentshell] -> {backend.name}", file=sys.stderr)
-        out = runner(argv, cwd)
+        out = runner(argv, cwd, on_line=progress_printer(backend))
         outcome = classify(backend, out)
         t = now()
 

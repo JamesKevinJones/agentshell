@@ -3,7 +3,7 @@
 > Updated at the end of every session, by whichever agent was driving.
 > Keep it under a page. This is a baton, not a diary.
 
-**Last updated:** 2026-09-18 by claude-code (session 3)
+**Last updated:** 2026-09-18 by claude-code (session 4)
 
 ## Where things stand
 
@@ -20,7 +20,7 @@ by Claude at Kevin's request ("solve all the errors asap"):
   failure trap, `fix`, `explain`, `cd` builtin, SQLite history feeding
   fish-style ghost text and the agent's context block.
 
-Tests: 53, all green. Of those, 17 spawn a real child process (PowerShell,
+Tests: 65, all green. Of those, 17 spawn a real child process (PowerShell,
 python, or the REPL through prompt_toolkit pipe input) - none spend quota.
 
 ## In progress
@@ -31,13 +31,18 @@ Nothing half-done. Everything below is unverified-against-live, not unbuilt.
 
 Live smoke done for all three frontier backends (claude, codex, agy all
 returned `pong`; agy needed its own parser, now pinned by its real JSON).
+Streaming verified live: a Claude run showed `> Bash: git log --oneline -3`
+at 7s and the answer at 13s, with stdout carrying only the final text.
 
 1. Open the `agentshell` profile in Windows Terminal (see VERIFY.md) and
    confirm the acrylic look. Tune `opacity` in the fragment to taste.
 2. In the REPL: `? list the five largest files here`. Watch whether the
    backend *proposes* a command or *runs* one. If it runs one, that
    backend's readonly flag is wrong (DECISIONS 2026-09-18).
-3. Nothing has been rate-limited yet, so no budget is learned. The first
+3. agy has no progress lines yet - it still runs `--output-format json`.
+   To add it: run `agy -p "say pong" --output-format stream-json` once,
+   look at the event shape, write `progress_agy` in backends.py.
+4. Nothing has been rate-limited yet, so no budget is learned. The first
    real refusal is the first test of the reactive path - check
    `~/.agentshell/failures/` afterwards and correct the regex if it was
    classified FAILED instead of RATE_LIMITED.
