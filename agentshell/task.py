@@ -108,9 +108,34 @@ def close(task: Task, cwd: Path, status: str) -> Path:
     return path
 
 
+def tracked_by_git(cwd: Path) -> list[str]:
+    """Files under .agentshell/ that git tracks. Should always be empty: the
+    folder is per-clone state. Non-empty means the repo *shipped* task files,
+    which is how a cloned repo could feed a prompt of its choosing to
+    `agentshell continue`. Callers refuse to consume them."""
+    try:
+        r = subprocess.run(["git", "ls-files", "--", DIR_NAME], cwd=cwd, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+class UntrustedTaskFiles(Exception):
+    pass
+
+
 def reopen_last_stopped(cwd: Path) -> Task | None:
     """`agentshell continue`: the newest stopped task comes back as the open
-    task, with its note restored, so the chain can be walked again."""
+    task, with its note restored, so the chain can be walked again.
+
+    Raises UntrustedTaskFiles if git tracks anything under .agentshell/:
+    a task this clone did not create is not one to hand to an agent."""
+    tracked = tracked_by_git(cwd)
+    if tracked:
+        raise UntrustedTaskFiles(
+            f"{len(tracked)} file(s) under {DIR_NAME}/ are committed to this repository "
+            f"(e.g. {tracked[0]}); refusing to continue a task this clone did not create")
     archive = cwd / DIR_NAME / "tasks"
     if not archive.is_dir():
         return None

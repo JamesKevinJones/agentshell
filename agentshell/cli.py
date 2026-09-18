@@ -90,7 +90,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.prompt == "continue":
         from . import task as tasks
-        existing = tasks.reopen_last_stopped(args.cwd)
+        try:
+            existing = tasks.reopen_last_stopped(args.cwd)
+        except tasks.UntrustedTaskFiles as e:
+            print(f"[agentshell] {e}", file=sys.stderr)
+            return 2
         if existing is None:
             print("[agentshell] nothing to continue: no stopped task in .agentshell/tasks", file=sys.stderr)
             return 1

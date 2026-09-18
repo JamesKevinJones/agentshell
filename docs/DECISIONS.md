@@ -8,6 +8,35 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-09-18 — Security review before first push: one fix, three accepted surfaces
+
+**Fixed.** `agentshell continue` reopened whatever stopped task it found
+under `.agentshell/tasks/`. That folder is per-clone state kept out of git
+by `.git/info/exclude` - on machines where agentshell has run. A repo you
+clone can *commit* one, with a prompt of the attacker's choosing, and
+`continue` would hand it to an agent with edit permission. Now
+`task.tracked_by_git()` is checked first and `continue` refuses with exit 2
+if git tracks anything under `.agentshell/`.
+
+**Accepted, by design, not to be re-flagged:**
+
+- *A typed line runs in PowerShell unescaped.* It is a shell; that is the
+  product. `-EncodedCommand` is used so agentshell's own wrapper cannot be
+  broken out of by quoting, not to sanitise the user's command.
+- *A proposal can be prompt-injected.* Repo content the agent reads could
+  steer a `?` answer toward `git push --force`. Mitigations are the ones
+  decided earlier: nothing runs without Enter, destructive patterns are
+  flagged red with a warning, read-only mode for proposals. Not blockable
+  without removing the feature.
+- *The handoff note is agent-written and fed to the next agent.* An agent
+  steered into writing a malicious note could steer its successor. The
+  same agent could act directly; the note adds no capability it lacked.
+
+**Out of scope per the review rules:** `~/.agentshell/failures/` dumps hold
+full agent stdout/stderr and may contain whatever the agent read.
+
+---
+
 ## 2026-09-18 — Design round (grilled): task, handoff, config, public repo
 
 Settled in one interview; each line is a decision, the alternatives it beat
