@@ -69,7 +69,7 @@ Re-run any of these in a throwaway git repo (`git init` in a temp folder):
 1. **Agent writes the handoff note.**
    `agentshell --via claude "create hello.py that prints hello world"` then
    `type .agentshell\HANDOFF.md` - it should be the agent's own note, not
-   "derived by agentshell". `.agentshell	asks\*.json` shows `done` and a
+   "derived by agentshell". `.agentshell\tasks\*.json` shows `done` and a
    session id.
 2. **Exhausted backend is skipped, next one streams.** Back up
    `~\.agentshell\ledger.json`, set `backends.claude.cooldown_until` to a
