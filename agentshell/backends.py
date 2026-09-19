@@ -31,6 +31,10 @@ class Usage:
 class Parsed:
     text: str      # what the user should see
     usage: Usage   # what to charge against the 5-hour window
+    # True when every line of `text` already went to stderr as a progress
+    # line, so a terminal (stdout and stderr on the same screen) need not
+    # print it a second time. A pipe still gets it: stdout is the answer.
+    echoed: bool = False
 
 
 @dataclass(frozen=True)

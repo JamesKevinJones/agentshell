@@ -62,6 +62,29 @@ real run creates `.agentshell/` there and adds `.agentshell/` to
 `.git/info/exclude`; `git status` must stay clean. After a stop,
 `agentshell continue` must print `continuing task <id>`.
 
+## Live checks that were run on 2026-09-19 (each spends one agent call)
+
+Re-run any of these in a throwaway git repo (`git init` in a temp folder):
+
+1. **Agent writes the handoff note.**
+   `agentshell --via claude "create hello.py that prints hello world"` then
+   `type .agentshell\HANDOFF.md` - it should be the agent's own note, not
+   "derived by agentshell". `.agentshell	asks\*.json` shows `done` and a
+   session id.
+2. **Exhausted backend is skipped, next one streams.** Back up
+   `~\.agentshell\ledger.json`, set `backends.claude.cooldown_until` to a
+   future unix time, run `agentshell status` (claude: `cooling down until`)
+   and `agentshell "add a docstring to hello.py"`: expect
+   `[agentshell] claude: cooling down until HH:MM`, `[agentshell] -> codex`,
+   `> $ ...` progress lines, and the edit. Restore the ledger.
+3. **A proposal never runs.** `python contriberify_proposal_live.py` with
+   `VERIFY_REPO` set - see its docstring for the three expected lines.
+
+Still only provable by a real refusal: the exact refusal wording each CLI
+prints (the regexes in `backends.py`) and therefore the learned budget. The
+mechanics are pinned by `tests/test_ledger.py::LearnedBudget` and
+`tests/test_router.py::Failover` against fakes.
+
 ## Status (no quota spent)
 
 ```bash

@@ -52,7 +52,19 @@ def status(chain: tuple[Backend, ...]) -> int:
     return 0
 
 
+def _utf8_streams() -> None:
+    """Agent output is full of curly quotes and ellipses; a piped stdout on
+    Windows defaults to the ANSI code page and would mangle them."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_streams()
     p = argparse.ArgumentParser(prog="agentshell",
                                 description="Run one prompt through a failover chain of agent CLIs.")
     p.add_argument("prompt", nargs="?", help="the task, or one of: status, repl, continue, config [init]")
@@ -105,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         prompt = with_piped_input(" ".join([args.prompt, *args.rest]), sys.stdin)
         code, parsed = run_task(prompt, cwd=args.cwd, chain=chain, via=args.via, dry_run=args.dry_run,
                                 keep_going=args.keep_going, timeout=cfg.timeout_seconds)
-    if parsed is not None:
+    # On a terminal both streams share the screen, so an answer that already
+    # streamed as progress is not printed again; a pipe always gets it.
+    if parsed is not None and not (parsed.echoed and sys.stdout.isatty()):
         print(parsed.text)
     return code

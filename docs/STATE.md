@@ -3,7 +3,7 @@
 > Updated at the end of every session, by whichever agent was driving.
 > Keep it under a page. This is a baton, not a diary.
 
-**Last updated:** 2026-09-18 by claude-code (session 5, pushed)
+**Last updated:** 2026-09-19 by claude-code (session 6)
 
 ## Where things stand
 

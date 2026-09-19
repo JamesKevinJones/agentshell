@@ -1,6 +1,7 @@
 """Pick a backend, run it, decide what happened, record it, maybe try the next."""
 from __future__ import annotations
 
+import dataclasses
 import enum
 import json
 import sys
@@ -8,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .backends import DEFAULT_CHAIN, Backend, Parsed
+from .backends import DEFAULT_CHAIN, Backend, Parsed, _short
 from . import task as tasks
 from .ledger import DEFAULT_PATH, Ledger
 from .runner import AttemptOutput, attempt
@@ -152,6 +153,10 @@ def run_task(
 
         if outcome is Outcome.OK:
             parsed = backend.parse(out.stdout)
+            shown = set(progress)
+            lines = [l for l in parsed.text.splitlines() if l.strip()]
+            if lines and all(_short(l) in shown for l in lines):
+                parsed = dataclasses.replace(parsed, echoed=True)
             if backend.metered:
                 ledger.record(backend.name, parsed.usage.total, t)
                 ledger.save(ledger_path, now=t)

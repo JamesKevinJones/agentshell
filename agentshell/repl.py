@@ -203,7 +203,7 @@ def main(history_path: Path | None = None, cfg: Config | None = None) -> int:
             started = time.time()
             code, parsed = run_task(line.arg, cwd=Path.cwd(), chain=cfg.backends(),
                                     timeout=cfg.timeout_seconds)
-            if parsed is not None:
+            if parsed is not None and not parsed.echoed:
                 print(parsed.text)
             hist.record(raw.strip(), started, int((time.time() - started) * 1000), code, str(Path.cwd()))
             session.history.append_string(raw.strip())

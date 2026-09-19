@@ -210,6 +210,18 @@ class Failover(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.calls, ["claude", "claude2"])
 
+    def test_answer_already_streamed_is_marked_echoed(self):
+        def streaming_ok(argv, cwd, **kw):
+            kw["on_line"](json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "Done: added the retry."}]}}))
+            return ok("Done: added the retry.")
+        with redirect_stderr(io.StringIO()):
+            _, parsed = run_task("x", cwd=self.repo, chain=(CLAUDE,), runner=streaming_ok, now=lambda: NOW,
+                                 ledger_path=self.ledger_path, failure_dir=self.failures)
+        self.assertTrue(parsed.echoed)
+        _, parsed = self.run_chain({"claude": ok("never streamed"), "claude2": ok()})
+        self.assertFalse(parsed.echoed)
+
     def test_readonly_never_opens_a_task(self):
         def fake_runner(argv, cwd, **kw):
             return AttemptOutput(2, "", "boom", 1.0) if argv[0] == "claude" else ok("answer")

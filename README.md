@@ -178,11 +178,17 @@ PowerShell 5.1 wrapper that took nine probe cases to get right.
 
 ## Honest status
 
-Verified live: `claude`, `codex` and `agy` one-shot runs, streaming from
-Claude, and the config/status/dry-run paths. Not yet seen live: OpenCode's
-JSON shape, a real refusal from any backend (the learned-budget path has
-run only against fakes), and whether each backend's read-only flag truly
-blocks edits on a `?` proposal.
+Verified live (2026-09-19, throwaway repo): a Claude task streaming its tool
+calls and writing `.agentshell/HANDOFF.md` itself; a cooled-down `claude`
+skipped by the router with `codex` taking the task and streaming `> $`
+progress; `status` showing `cooling down until HH:MM`; and a `?` proposal to
+create a file that landed in the buffer with the file never created. The
+commands are in `docs/VERIFY.md`.
+
+Not yet seen live: OpenCode's JSON shape, and a real refusal from any
+backend - the exact wording each CLI prints when the window is spent, which
+is what the learned budget keys off. Those regexes are best guesses until
+one lands in `~/.agentshell/failures/`.
 
 ## License
 
