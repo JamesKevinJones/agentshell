@@ -53,7 +53,7 @@ repl.main ─┬─ plain line ──▶ shell.run_command ──▶ PowerShell 
 Things that only make sense when you see several files at once:
 
 - **`backends.py` is data, `router.py` is the only decision-maker.** A
-  `Backend` is a frozen bundle of callables: `argv(prompt, readonly)`,
+  `Backend` is a frozen bundle of callables: `argv(prompt, readonly, cwd)`,
   `parse(stdout) -> Parsed`, `progress(event) -> str|None`,
   `session_id(stdout)`, `resume_argv(sid, prompt, readonly)`, plus regexes
   that mean "refused". Adding a backend touches only that file; every

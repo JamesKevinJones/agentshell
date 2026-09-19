@@ -15,7 +15,7 @@ from agentshell.runner import AttemptOutput
 
 NOW = 1_000_000.0
 # A second claude-shaped backend for failover tests, so one fake ok() serves both.
-CLAUDE2 = dataclasses.replace(CLAUDE, name="claude2", argv=lambda prompt, readonly: ["claude2", prompt])
+CLAUDE2 = dataclasses.replace(CLAUDE, name="claude2", argv=lambda prompt, readonly, cwd=None: ["claude2", prompt])
 
 
 def ok(text="done", tokens_in=100, tokens_out=20) -> AttemptOutput:

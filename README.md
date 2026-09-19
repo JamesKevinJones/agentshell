@@ -105,13 +105,19 @@ an agent and red when it matches the destructive list.
 |---|---|---|
 | `claude` | `claude -p --output-format stream-json` | metered, 5h window |
 | `codex` | `codex exec --json` | metered, 5h window |
-| `agy` (Antigravity) | `agy -p --output-format json` | metered, 5h window |
+| `agy` (Antigravity) | `agy -p --output-format stream-json --add-dir <cwd>` | metered, 5h window |
 | `opencode-local` | `opencode run -m ollama/gpt-oss:20b` | your GPU, unmetered |
 | `codex-oss` | `codex exec --oss --local-provider ollama` | your GPU, unmetered, needs no OpenCode config |
 
 Each has a read-only spelling (`--permission-mode plan`, `-s read-only`,
 `--mode plan`, `--agent plan`) used for `?`, `fix` and `explain`, so a
 proposal cannot quietly become an edit.
+
+`agy` in headless mode can edit files but auto-denies *commands*; a task
+that needs one comes back empty and the chain moves on. To let agy run
+commands, add allow-rules under `permissions.allow` in Antigravity's own
+`settings.json` - agentshell deliberately never passes
+`--dangerously-skip-permissions`.
 
 ---
 
@@ -184,6 +190,9 @@ skipped by the router with `codex` taking the task and streaming `> $`
 progress; `status` showing `cooling down until HH:MM`; and a `?` proposal to
 create a file that landed in the buffer with the file never created. The
 commands are in `docs/VERIFY.md`.
+
+Also verified 2026-09-19: agy streaming its tool calls, editing in the
+project directory, and writing the handoff note.
 
 Not yet seen live: OpenCode's JSON shape, and a real refusal from any
 backend - the exact wording each CLI prints when the window is spent, which

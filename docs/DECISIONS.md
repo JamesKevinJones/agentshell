@@ -8,6 +8,35 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-09-19 — agy: stream-json, --add-dir, no skip-permissions, empty output is FAILED
+
+**Context.** Adding progress lines for agy meant seeing its stream shape
+live. The probe found three more things.
+
+**Decisions.**
+- *Stream shape.* Every line is `{"event": init|step_update|result}`;
+  tools are `step_update` with `step_type: tool` (show once, on `ACTIVE`,
+  with `CommandLine` or `TargetFile`); text arrives as `text_delta` on
+  `agent_response` steps; the final `result` nests the json-mode object one
+  level down. `parse_agy` accepts both nestings. Pinned by
+  `tests/test_agy_stream.py` from captured events.
+- *`--add-dir <cwd>` on every agy argv.* Without it agy's tools acted in
+  the home directory (a task wrote `hello_agy.py` into `~`) even though its
+  init event reported the right cwd. `Backend.argv` therefore takes `cwd`
+  as an optional third argument; other CLIs ignore it.
+- *No `--dangerously-skip-permissions`.* Under it, an agy run that lost
+  track of its directory spent 228k tokens probing process trees and read
+  the PowerShell history file. `accept-edits` stays; command allow-rules
+  belong in agy's own settings.json where the user controls them.
+- *Exit 0 with empty stdout is FAILED, not OK.* That is what agy does when
+  headless mode auto-denies a tool it needed. Falls through to the next
+  backend with the stderr hint in the dump.
+
+**Consequences.** agy can edit files in a task but cannot run commands
+until the user adds allow-rules; a command-needing task hands off to codex.
+
+---
+
 ## 2026-09-18 — Security review before first push: one fix, three accepted surfaces
 
 **Fixed.** `agentshell continue` reopened whatever stopped task it found

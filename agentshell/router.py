@@ -29,6 +29,10 @@ def classify(backend: Backend, out: AttemptOutput) -> Outcome:
         # claude/agy can exit 0 and still report is_error in the JSON.
         if '"is_error": true' in out.stdout and backend.looks_refused(out.stdout, out.stderr):
             return Outcome.REFUSED
+        # agy exits 0 with nothing on stdout when headless mode auto-denied a
+        # tool it needed. "No output" is not success; the dump keeps stderr.
+        if not out.stdout.strip():
+            return Outcome.FAILED
         return Outcome.OK
     if out.exit_code in (127, -1):
         return Outcome.UNAVAILABLE
@@ -134,10 +138,10 @@ def run_task(
         # up. Its memory beats any note; the note still rides along.
         sid = task.session_for(backend.name) if task else None
         if sid and backend.resume_argv is not None:
-            argv = backend.resume_argv(sid, full_prompt, readonly)
+            argv = backend.resume_argv(sid, full_prompt, readonly, cwd)
             how = f" (resuming {sid[:8]})"
         else:
-            argv = backend.argv(full_prompt, readonly)
+            argv = backend.argv(full_prompt, readonly, cwd)
             how = " (with handoff note)" if note else ""
         if dry_run:
             print(f"[agentshell] would run {backend.name}: {argv}", file=sys.stderr)

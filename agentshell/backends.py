@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 
@@ -40,10 +41,12 @@ class Parsed:
 @dataclass(frozen=True)
 class Backend:
     name: str
-    # argv(prompt, readonly). readonly=True means "answer, do not touch the
-    # tree": the REPL uses it for `?` proposals and `explain`, where an agent
-    # that went ahead and ran the command would defeat the review step.
-    argv: Callable[[str, bool], list[str]]
+    # argv(prompt, readonly, cwd). readonly=True means "answer, do not touch
+    # the tree": the REPL uses it for `?` proposals and `explain`, where an
+    # agent that went ahead and ran the command would defeat the review step.
+    # cwd is the directory the attempt runs in; most CLIs take it from the
+    # process, agy needs it spelled out (--add-dir) or its tools act in ~.
+    argv: Callable[..., list[str]]
     parse: Callable[[str], Parsed]
     rate_limit_patterns: tuple[str, ...]
     # False means "no quota": never skipped by the ledger, never budgeted.
@@ -56,7 +59,7 @@ class Backend:
     # so a later attempt on the same task can resume it instead of starting
     # cold. resume_argv(session_id, prompt, readonly) builds that command.
     session_id: Callable[[str], str | None] = lambda stdout: None
-    resume_argv: Callable[[str, str, bool], list[str]] | None = None
+    resume_argv: Callable[..., list[str]] | None = None
 
     def looks_refused(self, stdout: str, stderr: str) -> bool:
         blob = stdout + "\n" + stderr
@@ -111,7 +114,8 @@ def parse_claude_style(stdout: str) -> Parsed:
 
 
 def parse_agy(stdout: str) -> Parsed:
-    """`agy -p --output-format json`. Verified live 2026-09-18 - NOT the
+    """`agy -p --output-format stream-json` (json mode has the same inner
+    object). Verified live 2026-09-18 and 2026-09-19 - NOT the
     Claude shape despite the identical flags. One object:
 
         {"conversation_id": ..., "status": "SUCCESS", "response": "pong\\n",
@@ -121,7 +125,14 @@ def parse_agy(stdout: str) -> Parsed:
 
     Thinking tokens are charged as output: they are generated, not read.
     """
-    obj = next((o for o in reversed(_json_lines(stdout)) if "response" in o), {})
+    # stream-json (verified 2026-09-19) nests the same object one level down:
+    # {"event": "result", "result": {..., "response": ...}}. Accept both.
+    obj: dict = {}
+    for o in reversed(_json_lines(stdout)):
+        inner = o.get("result") if isinstance(o.get("result"), dict) else o
+        if "response" in inner:
+            obj = inner
+            break
     u = obj.get("usage", {})
     return Parsed(
         text=str(obj.get("response", stdout)).rstrip("\n"),
@@ -238,6 +249,24 @@ def progress_codex(ev: dict) -> str | None:
     return None
 
 
+def progress_agy(ev: dict) -> str | None:
+    """agy `stream-json`: every step is a step_update. Tools show once, when
+    they go ACTIVE; agent text arrives as text_delta fragments on
+    agent_response steps (most of those carry only thinking, no text)."""
+    if ev.get("event") != "step_update":
+        return None
+    step = ev.get("step_update", {})
+    kind = step.get("step_type")
+    if kind == "tool" and step.get("state") == "ACTIVE":
+        params = step.get("tool_info", {}).get("parameters", {})
+        target = params.get("CommandLine") or params.get("TargetFile") or _first_string(params)
+        return f"> {step.get('tool_name', 'tool')}: {_short(target, 70)}"
+    if kind == "agent_response":
+        text = step.get("text_delta", "")
+        return _short(text) if text.strip() else None
+    return None
+
+
 def progress_opencode(ev: dict) -> str | None:
     """opencode `--format json`: shape unverified; show any text field."""
     text = ev.get("text")
@@ -254,7 +283,7 @@ def progress_opencode(ev: dict) -> str | None:
 LOCAL_MODEL = "gpt-oss:20b"
 
 
-def _claude_argv(prompt: str, readonly: bool) -> list[str]:
+def _claude_argv(prompt: str, readonly: bool, cwd: Path | None = None) -> list[str]:
     mode = "plan" if readonly else "acceptEdits"
     # stream-json needs --verbose in print mode; the last line is the same
     # {"type": "result"} object that plain json mode returns.
@@ -262,37 +291,46 @@ def _claude_argv(prompt: str, readonly: bool) -> list[str]:
             "--permission-mode", mode]
 
 
-def _claude_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
-    return _claude_argv(prompt, readonly) + ["--resume", sid]
+def _claude_resume(sid: str, prompt: str, readonly: bool, cwd: Path | None = None) -> list[str]:
+    return _claude_argv(prompt, readonly, cwd) + ["--resume", sid]
 
 
-def _codex_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
+def _codex_argv(prompt: str, readonly: bool, cwd: Path | None = None, *extra: str) -> list[str]:
     sandbox = "read-only" if readonly else "workspace-write"
     return ["codex", "exec", "--json", "-s", sandbox, *extra, prompt]
 
 
-def _codex_resume(sid: str, prompt: str, readonly: bool, *extra: str) -> list[str]:
+def _codex_resume(sid: str, prompt: str, readonly: bool, cwd: Path | None = None, *extra: str) -> list[str]:
     # exec's own flags go before the resume subcommand; resume takes id then prompt.
     sandbox = "read-only" if readonly else "workspace-write"
     return ["codex", "exec", "--json", "-s", sandbox, *extra, "resume", sid, prompt]
 
 
-def _agy_argv(prompt: str, readonly: bool) -> list[str]:
+def _agy_argv(prompt: str, readonly: bool, cwd: Path | None = None) -> list[str]:
+    # accept-edits lets agy edit files but NOT run commands in headless mode:
+    # a command tool is auto-denied and agy exits 0 with empty stdout (which
+    # classify() treats as FAILED, so the chain moves on). Allow-rules for
+    # specific commands belong in agy's own settings.json, not here;
+    # --dangerously-skip-permissions is deliberately not used (DECISIONS
+    # 2026-09-19).
     mode = "plan" if readonly else "accept-edits"
-    return ["agy", "-p", prompt, "--output-format", "json", "--mode", mode]
+    # --add-dir: verified 2026-09-19 that without it agy's tools act in the
+    # home directory even though its init event reports the right cwd.
+    workspace = ["--add-dir", str(cwd)] if cwd else []
+    return ["agy", "-p", prompt, "--output-format", "stream-json", "--mode", mode, *workspace]
 
 
-def _agy_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
-    return _agy_argv(prompt, readonly) + ["--conversation", sid]
+def _agy_resume(sid: str, prompt: str, readonly: bool, cwd: Path | None = None) -> list[str]:
+    return _agy_argv(prompt, readonly, cwd) + ["--conversation", sid]
 
 
-def _opencode_argv(prompt: str, readonly: bool, *extra: str) -> list[str]:
+def _opencode_argv(prompt: str, readonly: bool, cwd: Path | None = None, *extra: str) -> list[str]:
     agent = ["--agent", "plan"] if readonly else []
     return ["opencode", "run", "--format", "json", "-m", f"ollama/{LOCAL_MODEL}", *agent, *extra, prompt]
 
 
-def _opencode_resume(sid: str, prompt: str, readonly: bool) -> list[str]:
-    return _opencode_argv(prompt, readonly, "-s", sid)
+def _opencode_resume(sid: str, prompt: str, readonly: bool, cwd: Path | None = None) -> list[str]:
+    return _opencode_argv(prompt, readonly, cwd, "-s", sid)
 
 
 CLAUDE = Backend(
@@ -320,6 +358,7 @@ AGY = Backend(
     argv=_agy_argv,
     parse=parse_agy,
     rate_limit_patterns=(r"quota", r"RESOURCE_EXHAUSTED", r"rate.?limit", r"\b429\b"),
+    progress=progress_agy,
     session_id=session_agy,
     resume_argv=_agy_resume,
 )
@@ -341,15 +380,15 @@ OPENCODE_LOCAL = Backend(
 # falls through to here. Also unmetered - it is your own GPU.
 CODEX_OSS = Backend(
     name="codex-oss",
-    argv=lambda prompt, readonly: _codex_argv(
-        prompt, readonly, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
+    argv=lambda prompt, readonly, cwd=None: _codex_argv(
+        prompt, readonly, cwd, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
     parse=parse_codex,
     rate_limit_patterns=(),
     metered=False,
     progress=progress_codex,
     session_id=session_codex,
-    resume_argv=lambda sid, prompt, readonly: _codex_resume(
-        sid, prompt, readonly, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
+    resume_argv=lambda sid, prompt, readonly, cwd=None: _codex_resume(
+        sid, prompt, readonly, cwd, "--oss", "--local-provider", "ollama", "-m", LOCAL_MODEL),
 )
 
 DEFAULT_CHAIN: tuple[Backend, ...] = (CLAUDE, CODEX, AGY, OPENCODE_LOCAL, CODEX_OSS)

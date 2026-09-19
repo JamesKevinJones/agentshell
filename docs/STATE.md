@@ -3,7 +3,7 @@
 > Updated at the end of every session, by whichever agent was driving.
 > Keep it under a page. This is a baton, not a diary.
 
-**Last updated:** 2026-09-19 by claude-code (session 6)
+**Last updated:** 2026-09-19 by claude-code (session 7)
 
 ## Where things stand
 
@@ -23,7 +23,7 @@ one commit per step:
    README, CI on windows + ubuntu x py3.11-3.13, no personal paths in the
    tree. `pip install -e .` done; `agentshell status` works as a command.
 
-Tests: 103, all green on CI: windows-latest and ubuntu-latest x Python 3.11-3.13
+Tests: 113, all green on CI: windows-latest and ubuntu-latest x Python 3.11-3.13
 (so the 3.11 floor and the pwsh path are both verified, not hoped).
 
 Public at https://github.com/JamesKevinJones/agentshell (pushed 2026-09-18
@@ -52,13 +52,15 @@ Nothing half-done.
   not built. Both are additive; neither blocks anything.
 - Distribution name `agentshell-kj` is a placeholder (PyPI `agentshell` is
   taken). Rename in pyproject.toml before publishing anywhere.
-- agy still has no progress lines (plain `json` mode); its stream-json
-  shape has not been seen.
 - Native-command stderr in the REPL is shown *after* the command exits, not
   live (consequence of the PowerShell 5.1 wrapper). Fine for git; a
   long-running build that only reports on stderr will look silent.
 
 ## Known traps
+
+- agy's tools ignore the process cwd unless `--add-dir` is passed; the
+  argv builder does that now. Never pass `--dangerously-skip-permissions`
+  to agy from agentshell (DECISIONS 2026-09-19).
 
 - The Bash tool inside Claude Code desktop chokes on apostrophes in heredocs
   even when the delimiter is quoted. Use the Write tool for those files.
