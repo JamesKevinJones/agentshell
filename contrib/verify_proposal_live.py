@@ -3,8 +3,8 @@ buffer and is never executed, even when it would create a file.
 
 Spends one read-only agent call. Run from a throwaway git repo:
 
-    set VERIFY_REPO=C:\path	o\scratch-repo
-    python contriberify_proposal_live.py
+    set VERIFY_REPO=C:\path\to\scratch-repo
+    python contrib\verify_proposal_live.py
 
 Expect: "commands executed by the REPL: []", "marker file exists: False",
 "tree changed: False". Any other answer means a backend's read-only flag is
