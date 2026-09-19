@@ -1,82 +1,125 @@
 # agentshell
 
-The canonical context file. Claude Code, Antigravity (`agy`), and Codex all read
-this — directly or by import. Put durable project knowledge here; put
-session-to-session status in `docs/STATE.md`.
+The canonical context file. Claude Code (via `CLAUDE.md` -> `@AGENTS.md`),
+Antigravity (`agy`) and Codex all read this. Durable project knowledge lives
+here; session status in `docs/STATE.md`; the why behind choices in
+`docs/DECISIONS.md`; vocabulary in `CONTEXT.md`. Use the glossary's words in
+code and prose: **backend, chain, task, attempt, refusal, handoff note,
+proposal** - not agent/provider, job, run, rate-limit, suggestion.
 
 ## What this is
 
-A wrapper CLI plus an interactive shell that run coding prompts through a
-**failover chain** of agent CLIs. `python -m agentshell "add a retry"` picks
-the first backend whose 5-hour quota is not exhausted, runs it headless, and
-records how much of the window it used. When every frontier backend is out,
-it falls back to a local open-source model over Ollama, which has no quota.
+A one-shot CLI plus an interactive shell that route coding work through a
+failover **chain** of agent CLIs (`claude -> codex -> agy -> opencode-local ->
+codex-oss`). Each metered backend has a rolling 5-hour window whose budget is
+never published; agentshell learns it from the first **refusal** and skips the
+backend at 90% from then on. When every metered backend is out, the two local
+Ollama backends (unmetered) take over. A **task** outlives an **attempt**: if
+one backend is cut off, the next receives the git working tree plus a
+**handoff note**, and the same backend, back after cooldown, resumes its own
+session. See README.md for the user-facing feature list and every command.
 
-`python -m agentshell repl` is the shell: plain lines run in PowerShell,
-`? <task>` asks the agent for a command and puts it in the input buffer for
-review, failures offer a diagnosis, and every command is logged Atuin-style
-to SQLite so the agent sees recent context.
+## Commands
 
-The unit of work is one prompt. The **git working tree is the handoff**: if a
-backend dies mid-task, the next one is given the same prompt and sees whatever
-files the previous one already changed. Anything richer than that (transcript
-summaries, task files) is a later decision — see `docs/DECISIONS.md`.
+```powershell
+pip install -e .                      # installs prompt_toolkit, puts `agentshell` on PATH
+python -m unittest                    # whole suite (~15s; spawns PowerShell and python, never an agent CLI)
+python -m unittest -v tests.test_router                                   # one module
+python -m unittest tests.test_ledger.WindowUsage.test_empty_ledger_is_zero # one test
+agentshell --dry-run "x"              # which backend would run and its argv; spends nothing
+agentshell status                     # the ledger as a table
+agentshell repl                       # the shell; /help inside it
+```
 
-## Stack
+Live checks that *do* spend quota are listed in `docs/VERIFY.md`; run them
+deliberately, pinned with `--via <backend>` so nothing cascades.
 
-- Language / runtime: Python >= 3.11 (developed on 3.14), stdlib only **except
-  `prompt_toolkit`, confined to `repl.py`**. `pip install -e .` gives the `agentshell` command.
-- Tests: `unittest` (stdlib), run with `python -m unittest`
-- Backends wrapped (all must already be on PATH):
-  - `claude` — `claude -p --output-format stream-json --verbose` (progress lines as it runs)
-  - `agy` — `agy -p --output-format json` (flag surface copies Claude's)
-  - `codex` — `codex exec --json`
-  - `opencode` — `opencode run --format json -m ollama/<model>` (local fallback)
-  - `codex --oss --local-provider ollama` — same model, no config needed (fallback's fallback)
-- REPL exec shell: PowerShell 5.1 via `-EncodedCommand` (`pwsh` preferred if ever installed)
-- Local model runtime: Ollama at `http://localhost:11434`, `gpt-oss:20b`
-- State: `~/.agentshell/ledger.json` (quota), `~/.agentshell/history.db` (commands),
-  `~/.agentshell/failures/` (raw dumps), `~/.agentshell/config.json` (optional);
-  per project: `.agentshell/` (task, handoff note, archive) excluded via .git/info/exclude
+CI (`.github/workflows/tests.yml`) runs the suite on windows-latest and
+ubuntu-latest for Python 3.11-3.13. Ubuntu has `pwsh`, so the PowerShell
+tests run there too - keep them free of `cmd /c` and Windows-only wording.
 
-## Layout
+## How it fits together
+
+Two entry points share one core:
 
 ```
-agentshell/
-  __main__.py   # python -m agentshell "prompt"
-  cli.py        # argparse only; no logic
-  backends.py   # one Backend per CLI: argv builder, result parser, progress renderer, rate-limit patterns
-  runner.py     # attempt(): Popen, on_line streaming, timer timeout, missing-exe -> 127
-  ledger.py     # rolling 5-hour usage window per backend, learned budgets, cooldowns
-  router.py     # run_task: choose backend, attempt, classify, record, hand off, stop or retry
-  task.py       # .agentshell/ in the project: current task, HANDOFF.md, archive; git status snapshots
-  config.py     # ~/.agentshell/config.json, five knobs, absent means defaults
-  history.py    # SQLite command history (Atuin fields) + as_context() for the agent
-  shell.py      # REPL logic with no UI: parse_line, PowerShell wrapper, prompts, extract_command
-  repl.py       # prompt_toolkit loop; the only file that imports it
-tests/          # one file per module; RealPowershell + ReplLoop spawn a real child, no quota
+cli.main ─┬─ "status"/"config"/"continue" ─┐
+          └─ prompt ──────────────────────▶ router.run_task ──▶ runner.attempt ──▶ subprocess (a backend CLI)
+repl.main ─┬─ plain line ──▶ shell.run_command ──▶ PowerShell        │                    │ stdout lines
+           ├─ "? goal"/"fix"/"explain" ──▶ run_task(readonly=True) ◀─┘   backend.progress(event) ──▶ stderr
+           └─ "task goal" ───────────────▶ run_task(readonly=False)      backend.parse(stdout) ───▶ Parsed
 ```
+
+Things that only make sense when you see several files at once:
+
+- **`backends.py` is data, `router.py` is the only decision-maker.** A
+  `Backend` is a frozen bundle of callables: `argv(prompt, readonly)`,
+  `parse(stdout) -> Parsed`, `progress(event) -> str|None`,
+  `session_id(stdout)`, `resume_argv(sid, prompt, readonly)`, plus regexes
+  that mean "refused". Adding a backend touches only that file; every
+  parser and regex there is a guess until a live run confirms it (agy's JSON
+  turned out not to be Claude's despite identical flags).
+- **`readonly` is a safety boundary, not a hint.** The REPL's `?`, `fix`
+  and `explain` go through `run_task(readonly=True)`, which selects each
+  CLI's read-only spelling and opens no task. Only `task` and the one-shot
+  CLI get edit permission. A proposal is put in the input buffer by
+  `repl.py`; nothing in the codebase executes agent output.
+- **stdout is the answer, stderr is everything else.** `router.progress_printer`
+  streams per-event summaries to stderr as `runner.attempt` yields lines;
+  the final `Parsed.text` is the only thing the CLI prints to stdout, so
+  `agentshell "..." | Out-File` stays clean.
+- **Outcome drives what happens next** (`router.classify`): `OK` records
+  usage and closes the task; `REFUSED` learns the budget, sets a cooldown,
+  writes a derived note, moves on; `UNAVAILABLE` (exit 127 / timeout -1)
+  moves on; `FAILED` moves on only if `task.tree_changed` says the working
+  tree is untouched - otherwise it stops and points at `agentshell continue`.
+  Nothing ever reverts the user's files.
+- **The ledger never calls `time.time()`.** Every `ledger.py` and
+  `router.run_task` path takes `now` as an argument; tests pass constants.
+  Same for `runner` (injected as `runner=`), `ledger_path`, `failure_dir`.
+  Keep new code injectable the same way or the fake-backend tests cannot
+  cover it.
+- **`task.py` owns `.agentshell/` inside the *target* project.** `open_task`
+  adds the folder to `.git/info/exclude` (never the user's `.gitignore`),
+  deletes any stale `HANDOFF.md`, and `close` archives to `tasks/` pruned to
+  20. `reopen_last_stopped` refuses if git *tracks* anything under
+  `.agentshell/` - a cloned repo must not be able to hand `continue` a
+  prompt. Tests that exercise this must run in a throwaway git repo; one
+  that used `Path.cwd()` once wrote a task into this repository.
+- **The PowerShell wrapper in `shell.powershell_script` is deliberate.**
+  Progress silenced, error stream redirected to a temp file at the
+  PowerShell level, `$LASTEXITCODE` first, then `$Error` minus
+  `NativeCommandError*`. Each line exists because a simpler version failed a
+  probe case (CLIXML on piped stderr, `$?` lying after redirects and on
+  git's stderr noise). `RealPowershell` tests pin the cases; DECISIONS has
+  the full account.
+- **Config flows one way.** `config.load` -> `config.apply` (which sets
+  `backends.LOCAL_MODEL` and `ledger.SOFT_LIMIT` as module globals) ->
+  `cfg.backends()` -> chain passed into `run_task`. Tests that call
+  `apply()` must reset with `apply(Config())` in tearDown.
 
 ## Rules
 
-1. Match the surrounding code — naming, structure, comment density.
+1. Match the surrounding code - naming, structure, comment density.
 2. stdlib only, except `prompt_toolkit` inside `repl.py`. Anything else: ask first.
 3. Never spend frontier quota in tests. Tests use fakes; live checks are manual
    and listed in `docs/VERIFY.md`.
-4. Every non-OK backend run gets its raw stdout/stderr dumped to
-   `~/.agentshell/failures/`. Rate-limit patterns are learned from those dumps,
-   not guessed.
+4. Every non-OK attempt dumps raw stdout/stderr to `~/.agentshell/failures/`.
+   Refusal regexes are corrected from those dumps, not guessed.
 5. Run the checks in `docs/VERIFY.md` before reporting work as done.
+6. Append to `docs/DECISIONS.md`, never edit an old entry; if something
+   there stops being true, add a superseding entry that says so.
 
 ## Read these too
 
-- `CONTEXT.md` — the glossary; code and docs use its words (task, attempt, refusal, proposal)
-
-- `docs/STATE.md` — where we stopped, what's next
-- `docs/DECISIONS.md` — why things are the way they are
-- `docs/VERIFY.md` — how to prove a change works
+- `CONTEXT.md` - the glossary
+- `docs/STATE.md` - where we stopped, what is next, known traps
+- `docs/DECISIONS.md` - why things are the way they are
+- `docs/VERIFY.md` - how to prove a change works
 
 ## Don't touch
 
-- `~/.agentshell/ledger.json` by hand while a run is in flight — it is
+- `~/.agentshell/ledger.json` by hand while a run is in flight - it is
   rewritten whole on every record.
+- `contrib/windows-terminal-fragment.json` must contain no personal paths;
+  `%USERPROFILE%` is expanded by Windows Terminal.
