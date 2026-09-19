@@ -9,9 +9,9 @@ falls back to `gpt-oss:20b` on your own GPU (via Ollama) when every paid
 backend is exhausted. It is also an interactive shell: type a command and it
 runs; type `?` and an agent proposes one; type `task` and an agent does it.
 
-<a href="docs/media/brag.mp4"><img src="docs/media/brag.gif" alt="agentshell in 21 seconds: a usage-limit refusal, then the same task handed from claude to codex with a handoff note, a ? proposal landing in the buffer, and the status table" width="100%"></a>
+https://github.com/user-attachments/assets/3d3c5fa5-4d78-4e55-9eb2-b5a63192478c
 
-*21 seconds, with sound: [docs/media/brag.mp4](docs/media/brag.mp4)*
+*21 seconds, with sound. Source file: [docs/media/brag.mp4](docs/media/brag.mp4).*
 
 Windows-first (PowerShell is the exec shell). The routing layer is
 platform-neutral; CI runs the suite on Ubuntu too.
