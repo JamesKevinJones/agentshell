@@ -1,5 +1,7 @@
 """Pins the meaning of 'the last 5 hours'. Turns green when exercise 2 is done."""
+import tempfile
 import unittest
+from pathlib import Path
 
 from agentshell.ledger import WINDOW_SECONDS, Ledger
 
@@ -60,6 +62,26 @@ class LearnedBudget(unittest.TestCase):
         led = Ledger()
         led.record("claude", 10**9, NOW - 10)
         self.assertFalse(led.over_budget("claude", NOW))
+
+
+class Persistence(unittest.TestCase):
+    def test_round_trip(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "ledger.json"
+            led = Ledger()
+            led.record("claude", 100, NOW)
+            led.save(path, NOW)
+            self.assertEqual(Ledger.load(path).window_usage("claude", NOW), 100)
+
+    def test_corrupt_file_is_set_aside_not_fatal(self):
+        # A crash mid-write used to leave half a JSON file, and every later
+        # start died in Ledger.load. Losing the learned budgets is the safe
+        # direction: an unknown budget never blocks a backend.
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "ledger.json"
+            path.write_text('{"events": [{"backend": "cla', encoding="utf-8")
+            self.assertEqual(Ledger.load(path).window_usage("claude", NOW), 0)
+            self.assertTrue(path.with_suffix(".json.corrupt").exists())
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 """Spawn one backend CLI and capture what it did. Nothing else."""
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -51,6 +53,8 @@ def attempt(argv: list[str], cwd: Path, timeout: int = 900,
         # prompt text and would wait on it forever.
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace",
+        # Own process group, so a timeout can kill the whole tree (see kill).
+        start_new_session=(os.name != "nt"),
     )
 
     # stderr is drained on its own thread. Reading the two pipes in turn
@@ -64,8 +68,18 @@ def attempt(argv: list[str], cwd: Path, timeout: int = 900,
     timed_out = threading.Event()
 
     def kill() -> None:
+        # Kill the tree, not just the child: npm CLIs are .cmd shims whose
+        # real work runs in a grandchild that holds stdout open, so killing
+        # only cmd.exe left the loop below blocked until the agent finished.
         timed_out.set()
-        proc.kill()
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # finished between the timer firing and now
 
     timer = threading.Timer(timeout, kill)
     timer.start()

@@ -14,6 +14,7 @@ makes the window arithmetic testable without sleeping.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,7 +49,13 @@ class Ledger:
     def load(cls, path: Path = DEFAULT_PATH) -> "Ledger":
         if not path.exists():
             return cls()
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # Set it aside for a look and start empty: an unknown budget
+            # never blocks a backend, so this fails open, not shut.
+            os.replace(path, path.with_suffix(".json.corrupt"))
+            return cls()
         return cls(
             events=[Event(**e) for e in raw.get("events", [])],
             backends={k: BackendState(**v) for k, v in raw.get("backends", {}).items()},
@@ -63,7 +70,11 @@ class Ledger:
             "events": [vars(e) for e in self.events],
             "backends": {k: vars(v) for k, v in self.backends.items()},
         }
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        # Write aside, then rename over: a crash mid-write leaves the old
+        # file intact instead of half a JSON document.
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
 
     # --- queries -----------------------------------------------------------
 
