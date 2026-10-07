@@ -27,6 +27,15 @@ class Attempt(unittest.TestCase):
         self.assertEqual(out.exit_code, -1)
         self.assertIn("agentshell: timeout", out.stderr)
 
+    def test_timeout_kills_grandchildren_too(self):
+        # npm CLIs are .cmd shims: the real work happens in a grandchild that
+        # holds stdout open. Killing only the direct child left readline
+        # blocked until the grandchild finished on its own.
+        grandchild = f"import subprocess; subprocess.run([{PY!r}, '-c', 'import time; time.sleep(30)'])"
+        out = attempt([PY, "-c", grandchild], HERE, timeout=1)
+        self.assertEqual(out.exit_code, -1)
+        self.assertLess(out.seconds, 10)
+
     def test_utf8_output_survives(self):
         out = attempt([PY, "-X", "utf8", "-c", "print('café ✓')"], HERE)
         self.assertEqual(out.stdout.strip(), "café ✓")

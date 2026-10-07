@@ -8,6 +8,33 @@ deliberately. If a choice would look wrong without context, it belongs here.
 
 ---
 
+## 2026-10-07 — Timeouts kill the process tree; the ledger is written atomically
+
+**Context.** An audit against *Release It!* (every integration point needs a
+timeout that actually fires) and *DDIA* (a crash must not corrupt stored
+state) found two gaps, both reproduced before fixing:
+
+1. `runner.attempt` killed only the direct child on timeout. The npm CLIs
+   (codex, opencode) are `.cmd` shims, so the real agent ran as a grandchild
+   holding stdout open, and the read loop stayed blocked until it finished.
+   A 3 s timeout on a shim took 30 s. Same on POSIX for any CLI that forks.
+2. `Ledger.save` rewrote `ledger.json` in place. A crash mid-write left
+   truncated JSON and `Ledger.load` raised on every later start.
+
+**Decision.** (1) The child gets its own session on POSIX; a timeout runs
+`taskkill /F /T` on Windows and `killpg` elsewhere. (2) Save writes
+`ledger.json.tmp` and `os.replace`s it over; a file that will not parse is
+renamed to `ledger.json.corrupt` and the ledger starts empty.
+
+**Why not the alternative.** psutil would kill trees portably but breaks the
+stdlib-only rule. Starting empty after corruption fails open: an unknown
+budget never blocks a backend, and the first refusal relearns it.
+
+**Consequences.** Pinned by `test_timeout_kills_grandchildren_too` and the
+`Persistence` tests in `test_ledger.py`.
+
+---
+
 ## 2026-09-19 — agy: stream-json, --add-dir, no skip-permissions, empty output is FAILED
 
 **Context.** Adding progress lines for agy meant seeing its stream shape

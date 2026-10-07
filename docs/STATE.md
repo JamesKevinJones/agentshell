@@ -7,6 +7,13 @@
 
 ## Where things stand
 
+**2026-10-07, branch `principles-audit` (not pushed):** a *Release It!*/DDIA
+audit fixed two reproduced bugs. `runner.attempt` timeouts now kill the whole
+process tree (a `.cmd` shim's grandchild kept a 3 s timeout running 30 s), and
+`ledger.json` is written atomically, with a corrupt file set aside instead of
+crashing startup. 116 tests green on Windows; runner + ledger tests also green on Linux (WSL), so the `killpg` path is exercised. Next: `/security-review`, push,
+let CI run the full matrix, merge. DECISIONS 2026-10-07.
+
 The grilled design round (DECISIONS 2026-09-18, six entries) is fully built,
 one commit per step:
 
