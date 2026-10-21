@@ -1,5 +1,8 @@
 # agentshell
 
+[![tests](https://github.com/JamesKevinJones/agentshell/actions/workflows/tests.yml/badge.svg)](https://github.com/JamesKevinJones/agentshell/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **One shell. Every agent CLI you pay for. A local model when they're all out.**
 
 Claude Code, Codex and Antigravity each cut you off after a rolling five-hour
@@ -11,7 +14,16 @@ runs; type `?` and an agent proposes one; type `task` and an agent does it.
 
 https://github.com/user-attachments/assets/3d3c5fa5-4d78-4e55-9eb2-b5a63192478c
 
-*21 seconds, with sound. Source file: [docs/media/brag.mp4](docs/media/brag.mp4).*
+*A 21-second launch video, with sound. Source file: [docs/media/brag.mp4](docs/media/brag.mp4).*
+
+And a real run, nothing spent: `status` reads the ledger, and `--dry-run` shows
+which backend the chain would pick and its exact argv, then stops before
+starting anything.
+
+![agentshell status and two --dry-run calls: the chain, each backend's argv, and --via pinning](docs/img/agentshell-run.svg)
+
+<sub>Captured 21 Oct 2026 on Windows 11 with a fresh home folder, so no budget has
+been learned yet ("unknown"). Rendered from the real terminal output.</sub>
 
 Windows-first (PowerShell is the exec shell). The routing layer is
 platform-neutral; CI runs the suite on Ubuntu too.
@@ -167,7 +179,7 @@ Reopen Windows Terminal and pick `agentshell` from the tab dropdown.
 
 ---
 
-## Development
+## Development: tests and CI
 
 ```powershell
 git clone https://github.com/JamesKevinJones/agentshell
@@ -176,8 +188,12 @@ pip install -e .
 python -m unittest
 ```
 
-The suite never spawns an agent CLI and never spends quota. It does spawn
-PowerShell and Python to pin the exec wrapper and the streaming runner.
+116 tests, about 13 s on a laptop. The suite never spawns an agent CLI and
+never spends quota: the router gets an injected fake runner, and the stream
+parsers are pinned to events captured from live runs. It does spawn PowerShell and Python to pin the exec wrapper and the
+streaming runner. CI (`tests.yml`) runs it on windows-latest and ubuntu-latest
+for Python 3.11, 3.12 and 3.13; Ubuntu has `pwsh`, so the PowerShell tests run
+there too.
 `CONTEXT.md` is the glossary (task, attempt, refusal, proposal, handoff);
 `docs/DECISIONS.md` records why things are the way they are, including the
 PowerShell 5.1 wrapper that took nine probe cases to get right.
@@ -199,6 +215,44 @@ backend - the exact wording each CLI prints when the window is spent, which
 is what the learned budget keys off. Those regexes are best guesses until
 one lands in `~/.agentshell/failures/`.
 
-## License
+## What broke, and what it taught me
 
-MIT.
+Every bug worth telling here was invisible until something real ran:
+
+- **A timeout that didn't time out.** `runner.attempt` killed only the direct
+  child. The npm CLIs (codex, opencode) are `.cmd` shims, so the real agent ran
+  as a grandchild holding stdout open: a 3 s timeout took 30 s. Timeouts now
+  kill the whole process tree (`taskkill /T` on Windows, a process group
+  elsewhere), pinned by `test_timeout_kills_grandchildren_too`.
+- **One crash could brick startup.** The ledger was rewritten in place, so a
+  crash mid-write left truncated JSON and every later start raised. It is now
+  written to a temp file and swapped in atomically, and a file that won't parse
+  is set aside rather than trusted.
+- **Same flags, different stream.** agy accepts Claude's `--output-format
+  stream-json` but emits a different event shape, and without `--add-dir` its
+  tools acted in the home directory (a task wrote `hello_agy.py` into `~`) even
+  though it reported the right working directory. Both are pinned by tests built
+  from events captured live.
+- **A test wrote into this repository.** One task test used `Path.cwd()` and
+  opened a task in the repo itself. Tests that touch `.agentshell/` now run in a
+  throwaway git repo.
+
+The first two came out of an audit against *Release It!* and *DDIA* in October;
+`docs/DECISIONS.md` has the full account of each.
+
+## Limitations
+
+- **Refusal detection is unverified.** No backend has refused live yet, so the
+  regexes that teach the learned budget are best guesses (see "Honest status").
+- **OpenCode's output format is unconfirmed**, and OpenCode has no Ollama
+  provider configured here; when it fails, the chain falls through to
+  `codex-oss`.
+- **agy can't run commands headless** unless you add allow-rules in its own
+  settings; agentshell will not pass `--dangerously-skip-permissions`.
+- **Windows-first.** Plain REPL lines run in PowerShell (`pwsh` if it is on
+  `PATH`, else Windows PowerShell), so on Linux or macOS the shell needs `pwsh`
+  installed. The router and the test suite run on both.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
